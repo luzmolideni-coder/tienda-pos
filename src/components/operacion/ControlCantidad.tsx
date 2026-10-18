@@ -6,7 +6,11 @@ import { ModalTeclado } from "@/components/operacion/ModalTeclado";
 
 interface ControlCantidadProps {
   valor: number;
-  onCambiar: (valor: number) => void;
+  /**
+   * Recibe una función anterior → nueva, para aplicarla con setState(prev => ...).
+   * Así dos toques rápidos en + suman 2 aunque React no haya re-renderizado entre ellos.
+   */
+  onCambiar: (siguiente: (anterior: number) => number) => void;
   /** Nombre del producto, para el teclado y la accesibilidad. */
   etiqueta: string;
 }
@@ -24,7 +28,7 @@ export function ControlCantidad({ valor, onCambiar, etiqueta }: ControlCantidadP
         type="button"
         aria-label={`Quitar una pieza de ${etiqueta}`}
         disabled={valor <= 0}
-        onClick={() => onCambiar(Math.max(0, valor - 1))}
+        onClick={() => onCambiar((n) => Math.max(0, n - 1))}
         className={boton}
       >
         <Minus className="size-6" aria-hidden />
@@ -41,7 +45,7 @@ export function ControlCantidad({ valor, onCambiar, etiqueta }: ControlCantidadP
       >
         {valor}
       </button>
-      <button type="button" aria-label={`Agregar una pieza de ${etiqueta}`} onClick={() => onCambiar(valor + 1)} className={boton}>
+      <button type="button" aria-label={`Agregar una pieza de ${etiqueta}`} onClick={() => onCambiar((n) => n + 1)} className={boton}>
         <Plus className="size-6" aria-hidden />
       </button>
 
@@ -53,7 +57,7 @@ export function ControlCantidad({ valor, onCambiar, etiqueta }: ControlCantidadP
           valorInicial={valor}
           onCerrar={() => setTecleando(false)}
           onAceptar={(n) => {
-            onCambiar(Math.max(0, Math.round(n)));
+            onCambiar(() => Math.max(0, Math.round(n)));
             setTecleando(false);
           }}
         />

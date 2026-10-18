@@ -21,13 +21,7 @@ import { ModalTeclado } from "@/components/operacion/ModalTeclado";
 import { SelectorProducto } from "@/components/operacion/SelectorProducto";
 import { ModalMovimiento } from "@/components/pos/ModalMovimiento";
 import { useSession } from "@/components/session/SessionProvider";
-import {
-  cargarPedidosAprobados,
-  cargarProveedores,
-  procesarRecepcion,
-  totalRecepcion,
-  type PedidoAprobado,
-} from "@/lib/compras";
+import { cargarPedidos, cargarProveedores, procesarRecepcion, totalRecepcion, type Pedido } from "@/lib/compras";
 import { buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento } from "@/lib/datos";
 import { formatMXN, redondear } from "@/lib/format";
 import type { Producto, Proveedor, TipoMovimiento } from "@/types/pos";
@@ -41,7 +35,7 @@ interface Fila {
 type Fase =
   | { tipo: "inicio" }
   | { tipo: "elegir-pedido" }
-  | { tipo: "captura"; pedido: PedidoAprobado | null }
+  | { tipo: "captura"; pedido: Pedido | null }
   | { tipo: "listo"; total: number; proveedor: string; piezas: number; productos: number; pagado: boolean };
 
 const fecha = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" });
@@ -54,7 +48,7 @@ export default function ComprasPage() {
   const { usuario, turno, establecerTurno } = useSession();
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [pedidos, setPedidos] = useState<PedidoAprobado[]>([]);
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
@@ -78,11 +72,12 @@ export default function ComprasPage() {
       const [provs, prods, peds] = await Promise.all([
         cargarProveedores(),
         cargarProductosActivos(),
-        cargarPedidosAprobados(usuario.tienda_id),
+        cargarPedidos("APROBADO", usuario.tienda_id),
       ]);
       setProveedores(provs);
       setProductos(prods);
-      setPedidos(peds);
+      // Dirección puede dejar partidas en 0 al aprobar: no se recibe nada de ellas.
+      setPedidos(peds.map((p) => ({ ...p, partidas: p.partidas.filter((x) => x.cantidad > 0) })));
     } catch (e) {
       console.error(e);
       setErrorCarga(`No se pudieron cargar los datos de compras. ${mensajeDe(e)}`.trim());
@@ -114,7 +109,7 @@ export default function ComprasPage() {
     setFase({ tipo: "captura", pedido: null });
   };
 
-  const iniciarDesdePedido = (pedido: PedidoAprobado) => {
+  const iniciarDesdePedido = (pedido: Pedido) => {
     setProveedorId(String(pedido.proveedorId));
     setFilas(
       pedido.partidas.map((p) => ({
@@ -379,7 +374,13 @@ export default function ComprasPage() {
                         <ControlCantidad
                           valor={f.piezas}
                           etiqueta={prod?.nombre ?? "producto"}
-                          onCambiar={(n) => actualizarFila(f.productoId, { piezas: n })}
+                          onCambiar={(siguiente) => {
+                            setConfirmando(false);
+                            setError(null);
+                            setFilas((todas) =>
+                              todas.map((x) => (x.productoId === f.productoId ? { ...x, piezas: siguiente(x.piezas) } : x)),
+                            );
+                          }}
                         />
                       </td>
                       <td className="py-3 pr-4">

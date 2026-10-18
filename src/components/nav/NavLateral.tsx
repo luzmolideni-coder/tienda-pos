@@ -1,14 +1,17 @@
 "use client";
 
-import { ClipboardList, LogOut, PackageCheck, ShoppingCart, Store } from "lucide-react";
+import { ClipboardList, Landmark, LogOut, PackageCheck, ShoppingCart, Store } from "lucide-react";
 import Link from "next/link";
+import { Fragment } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/components/session/SessionProvider";
+import { esAdmin } from "@/lib/roles";
 
 const SECCIONES = [
-  { href: "/", etiqueta: "Vender", Icono: ShoppingCart },
-  { href: "/operacion/pedidos", etiqueta: "Pedidos", Icono: ClipboardList },
-  { href: "/operacion/compras", etiqueta: "Compras", Icono: PackageCheck },
+  { href: "/", etiqueta: "Vender", Icono: ShoppingCart, soloAdmin: false },
+  { href: "/operacion/pedidos", etiqueta: "Pedidos", Icono: ClipboardList, soloAdmin: false },
+  { href: "/operacion/compras", etiqueta: "Compras", Icono: PackageCheck, soloAdmin: false },
+  { href: "/direccion/pedidos", etiqueta: "Dirección", Icono: Landmark, soloAdmin: true },
 ];
 
 /** Riel de navegación a la izquierda: ocupa poco ancho y deja botones grandes para el dedo. */
@@ -30,22 +33,24 @@ export function NavLateral() {
       <span className="mb-2 grid size-12 place-items-center rounded-2xl bg-emerald-600 text-white">
         <Store className="size-7" aria-hidden />
       </span>
-      {SECCIONES.map(({ href, etiqueta, Icono }) => {
+      {SECCIONES.filter((s) => !s.soloAdmin || (usuario && esAdmin(usuario.rol))).map(({ href, etiqueta, Icono, soloAdmin }) => {
         const activa = href === "/" ? ruta === "/" : ruta.startsWith(href);
         return (
-          <Link
-            key={href}
-            href={href}
-            aria-current={activa ? "page" : undefined}
-            className={`pressable flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-2xl text-sm font-medium ${
-              activa
-                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                : "text-slate-500 dark:text-slate-400"
-            }`}
-          >
-            <Icono className="size-7" aria-hidden />
-            {etiqueta}
-          </Link>
+          <Fragment key={href}>
+            {soloAdmin && <hr className="my-1 w-14 border-slate-200 dark:border-slate-700" />}
+            <Link
+              href={href}
+              aria-current={activa ? "page" : undefined}
+              className={`pressable flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-2xl text-sm font-medium ${
+                activa
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              <Icono className="size-7" aria-hidden />
+              {etiqueta}
+            </Link>
+          </Fragment>
         );
       })}
 

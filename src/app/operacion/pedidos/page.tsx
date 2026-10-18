@@ -72,10 +72,13 @@ export default function PedidosPage() {
     return s + (prod?.costo_actual ?? 0) * n;
   }, 0);
 
-  const cambiarCantidad = (productoId: string, n: number) => {
+  const cambiarCantidad = (productoId: string, siguiente: (anterior: number) => number) => {
     if (!proveedorId) return;
     setErrorEnvio(null);
-    setPorProveedor((todo) => ({ ...todo, [proveedorId]: { ...todo[proveedorId], [productoId]: n } }));
+    setPorProveedor((todo) => {
+      const delProv = todo[proveedorId] ?? {};
+      return { ...todo, [proveedorId]: { ...delProv, [productoId]: siguiente(delProv[productoId] ?? 0) } };
+    });
   };
 
   const enviar = async () => {

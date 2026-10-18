@@ -1,6 +1,5 @@
 import { redondear } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
-import { generarUuid } from "@/lib/uuid";
 import type { Id, Proveedor, Usuario } from "@/types/pos";
 
 export async function cargarProveedores(): Promise<Proveedor[]> {
@@ -27,47 +26,38 @@ export interface PartidaPedido {
   cantidad: number;
 }
 
-/**
- * Guarda el pedido con estado SOLICITADO y sus partidas. Son dos inserts (no hay función
- * transaccional para pedidos): si fallan las partidas se intenta borrar el encabezado.
- */
-export async function crearPedido(usuario: Usuario, proveedorId: Id, partidas: PartidaPedido[]): Promise<Id> {
-  const supabase = getSupabase();
-  const pedidoId = generarUuid();
-
-  const { error } = await supabase.from("pedidos").insert({
-    id: pedidoId,
-    tienda_id: usuario.tienda_id,
-    proveedor_id: proveedorId,
-    solicitado_por: usuario.id,
-    estado: "SOLICITADO",
+/** Crea el pedido con estado SOLICITADO y sus partidas en una sola transacción (función crear_pedido). */
+export async function crearPedido(usuario: Usuario, proveedorId: Id, partidas: PartidaPedido[]): Promise<unknown> {
+  const { data, error } = await getSupabase().rpc("crear_pedido", {
+    p_tienda_id: usuario.tienda_id,
+    p_proveedor_id: proveedorId,
+    p_solicitado_por: usuario.id,
+    // Se mandan ambos nombres de cantidad porque son los que usan pedido_items y las demás funciones.
+    p_items: partidas.map((p) => ({ producto_id: p.productoId, cantidad_solicitada: p.cantidad, cantidad: p.cantidad })),
   });
   if (error) throw error;
-
-  const { error: errorPartidas } = await supabase.from("pedido_items").insert(
-    partidas.map((p) => ({ id: generarUuid(), pedido_id: pedidoId, producto_id: p.productoId, cantidad_solicitada: p.cantidad })),
-  );
-  if (errorPartidas) {
-    await supabase.from("pedidos").delete().eq("id", pedidoId);
-    throw errorPartidas;
-  }
-  return pedidoId;
+  return data;
 }
 
-export interface PedidoAprobado {
+export interface PartidaDePedido extends PartidaPedido {
+  /** id de la fila en pedido_items, para ajustar la cantidad al aprobar. */
+  itemId: Id;
+}
+
+export interface Pedido {
   id: Id;
   proveedorId: Id;
   proveedorNombre: string;
   creado: string;
-  partidas: PartidaPedido[];
+  partidas: PartidaDePedido[];
 }
 
-export async function cargarPedidosAprobados(tiendaId: Id | null): Promise<PedidoAprobado[]> {
+export async function cargarPedidos(estado: "SOLICITADO" | "APROBADO", tiendaId: Id | null): Promise<Pedido[]> {
   let consulta = getSupabase()
     .from("pedidos")
-    .select("id, proveedor_id, created_at, proveedores(nombre), pedido_items(producto_id, cantidad_solicitada)")
-    .eq("estado", "APROBADO")
-    .order("created_at", { ascending: false });
+    .select("id, proveedor_id, created_at, proveedores(nombre), pedido_items(id, producto_id, cantidad_solicitada)")
+    .eq("estado", estado)
+    .order("created_at", { ascending: estado === "SOLICITADO" });
   if (tiendaId) consulta = consulta.eq("tienda_id", tiendaId);
   const { data, error } = await consulta;
   if (error) throw error;
@@ -80,12 +70,47 @@ export async function cargarPedidosAprobados(tiendaId: Id | null): Promise<Pedid
       proveedorId: p.proveedor_id,
       proveedorNombre: (prov as { nombre?: string } | null)?.nombre ?? "Proveedor",
       creado: p.created_at,
-      partidas: (p.pedido_items ?? []).map((i: { producto_id: Id; cantidad_solicitada: number }) => ({
+      partidas: (p.pedido_items ?? []).map((i: { id: Id; producto_id: Id; cantidad_solicitada: number }) => ({
+        itemId: i.id,
         productoId: i.producto_id,
         cantidad: Number(i.cantidad_solicitada),
       })),
     };
   });
+}
+
+/** Con RLS un UPDATE sin permiso no falla: devuelve 0 filas. Se pide el id para detectarlo. */
+async function actualizarPedido(pedidoId: Id, cambios: Record<string, unknown>): Promise<void> {
+  const { data, error } = await getSupabase()
+    .from("pedidos")
+    .update(cambios)
+    .eq("id", pedidoId)
+    .eq("estado", "SOLICITADO")
+    .select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("El pedido ya no está SOLICITADO o no hay permiso para cambiarlo.");
+}
+
+/**
+ * Guarda las cantidades ajustadas y pasa el pedido a APROBADO para que Compras lo cargue.
+ * Una cantidad en 0 deja la partida en 0 (Compras la ignora) en lugar de borrarla.
+ */
+export async function aprobarPedido(pedidoId: Id, aprobadoPor: Id, ajustes: { itemId: Id; cantidad: number }[]): Promise<void> {
+  const supabase = getSupabase();
+  const resultados = await Promise.all(
+    ajustes.map((a) =>
+      supabase.from("pedido_items").update({ cantidad_solicitada: a.cantidad }).eq("id", a.itemId).eq("pedido_id", pedidoId).select("id"),
+    ),
+  );
+  for (const r of resultados) {
+    if (r.error) throw r.error;
+    if (!r.data?.length) throw new Error("No se pudieron guardar las cantidades ajustadas (sin permiso para editar partidas).");
+  }
+  await actualizarPedido(pedidoId, { estado: "APROBADO", aprobado_por: aprobadoPor });
+}
+
+export async function rechazarPedido(pedidoId: Id): Promise<void> {
+  await actualizarPedido(pedidoId, { estado: "RECHAZADO" });
 }
 
 export interface PartidaRecepcion {
