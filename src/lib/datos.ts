@@ -13,16 +13,13 @@ export async function cargarProductosActivos(): Promise<Producto[]> {
   return (data ?? []).map((p) => ({ ...p, precio_venta: Number(p.precio_venta), es_favorito: !!p.es_favorito }));
 }
 
+/** Valida el PIN en el servidor (función login_con_pin); los PINs nunca llegan al navegador. */
 export async function buscarUsuarioPorPin(pin: string): Promise<Usuario | null> {
-  const { data, error } = await getSupabase()
-    .from("usuarios")
-    .select("id, nombre, rol, tienda_id")
-    .eq("pin", pin)
-    .eq("activo", true)
-    .limit(1)
-    .maybeSingle();
+  const { data, error } = await getSupabase().rpc("login_con_pin", { p_pin: pin });
   if (error) throw error;
-  return data;
+  // La función devuelve un conjunto de filas: vacío si el PIN no existe.
+  const filas = (Array.isArray(data) ? data : data ? [data] : []) as Usuario[];
+  return filas[0] ?? null;
 }
 
 interface NuevaVenta {
