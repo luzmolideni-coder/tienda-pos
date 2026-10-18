@@ -92,21 +92,17 @@ async function actualizarPedido(pedidoId: Id, cambios: Record<string, unknown>):
 }
 
 /**
- * Guarda las cantidades ajustadas y pasa el pedido a APROBADO para que Compras lo cargue.
- * Una cantidad en 0 deja la partida en 0 (Compras la ignora) en lugar de borrarla.
+ * Aprueba el pedido en una sola transacción (función aprobar_pedido): guarda las cantidades
+ * aprobadas y lo pasa a APROBADO para que Compras lo cargue. Una cantidad en 0 deja la partida
+ * en 0 y Compras la ignora.
  */
-export async function aprobarPedido(pedidoId: Id, aprobadoPor: Id, ajustes: { itemId: Id; cantidad: number }[]): Promise<void> {
-  const supabase = getSupabase();
-  const resultados = await Promise.all(
-    ajustes.map((a) =>
-      supabase.from("pedido_items").update({ cantidad_solicitada: a.cantidad }).eq("id", a.itemId).eq("pedido_id", pedidoId).select("id"),
-    ),
-  );
-  for (const r of resultados) {
-    if (r.error) throw r.error;
-    if (!r.data?.length) throw new Error("No se pudieron guardar las cantidades ajustadas (sin permiso para editar partidas).");
-  }
-  await actualizarPedido(pedidoId, { estado: "APROBADO", aprobado_por: aprobadoPor });
+export async function aprobarPedido(pedidoId: Id, aprobadoPor: Id, partidas: PartidaPedido[]): Promise<void> {
+  const { error } = await getSupabase().rpc("aprobar_pedido", {
+    p_pedido_id: pedidoId,
+    p_aprobado_por: aprobadoPor,
+    p_items: partidas.map((p) => ({ producto_id: p.productoId, cantidad_aprobada: p.cantidad })),
+  });
+  if (error) throw error;
 }
 
 export async function rechazarPedido(pedidoId: Id): Promise<void> {

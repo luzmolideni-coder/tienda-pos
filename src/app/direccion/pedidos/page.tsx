@@ -79,10 +79,12 @@ export default function AprobacionPedidosPage() {
     setAccion("aprobando");
     setError(null);
     try {
+      // Se mandan todas las partidas con su cantidad final (ajustada o no): así el resultado
+      // no depende de si la función trata como 0 o como "sin cambio" a las que falten.
       await aprobarPedido(
         pedido.id,
         usuario.id,
-        cambiados.map((l) => ({ itemId: l.itemId, cantidad: l.final })),
+        lineas.map((l) => ({ productoId: l.productoId, cantidad: l.final })),
       );
       setAviso(`Pedido de ${pedido.proveedorNombre} aprobado · ${piezas} piezas`);
       quitarDeLista(String(pedido.id));
