@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#059669" />
+    <title>Sin conexión · Tienda POS</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: grid; place-items: center; text-align: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #f8fafc; color: #0f172a; padding: 24px;
+      }
+      img { width: 96px; height: 96px; }
+      h1 { font-size: 28px; margin: 24px 0 8px; }
+      p { font-size: 18px; color: #475569; margin: 0 0 32px; }
+      button {
+        min-height: 56px; padding: 0 32px; border: 0; border-radius: 16px;
+        background: #059669; color: #fff; font-size: 20px; font-weight: 600;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0f172a; color: #f1f5f9; }
+        p { color: #94a3b8; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>Sin conexión</h1>
+      <p>Revisa el Wi‑Fi de la tienda e intenta de nuevo.</p>
+      <button onclick="location.reload()">Reintentar</button>
+    </main>
+  </body>
+</html>
