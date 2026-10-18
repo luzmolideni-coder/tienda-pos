@@ -61,6 +61,24 @@ textarea,
   }
 }
 
+/* Al imprimir el corte solo sale el comprobante, en blanco y negro. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .comprobante,
+  .comprobante * {
+    visibility: visible;
+  }
+  .comprobante {
+    position: absolute;
+    inset: 0 auto auto 0;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+}
+
 /* Botón táctil: área grande y respuesta visual al presionar. */
 @utility touch-target {
   min-height: var(--spacing-touch);

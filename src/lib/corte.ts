@@ -1,0 +1,114 @@
+import { formatMXN, redondear } from "@/lib/format";
+import type { TipoMovimiento } from "@/types/pos";
+
+export const ETIQUETA_MOVIMIENTO: Record<TipoMovimiento, string> = {
+  ENTRADA: "Entrada de efectivo",
+  PAGO_PROVEEDOR: "Pago a proveedor",
+  GASTO: "Gasto extra",
+};
+
+export interface CifrasTurno {
+  fondoInicial: number;
+  numVentas: number;
+  ventasEfectivo: number;
+  ventasTarjeta: number;
+  ventasTransferencia: number;
+  entradas: number;
+  pagosProveedores: number;
+  gastos: number;
+  /** Fondo + ventas en efectivo + entradas − pagos − gastos. */
+  efectivoEsperado: number;
+}
+
+interface VentaResumen {
+  metodo_pago: string;
+  total: number;
+}
+
+interface MovimientoResumen {
+  tipo: string;
+  monto: number;
+}
+
+export function calcularCifras(fondoInicial: number, ventas: VentaResumen[], movimientos: MovimientoResumen[]): CifrasTurno {
+  const sumaVentas = (metodo: string) =>
+    redondear(ventas.filter((v) => v.metodo_pago.toLowerCase() === metodo).reduce((s, v) => s + v.total, 0));
+  const sumaMovimientos = (tipo: TipoMovimiento) =>
+    redondear(movimientos.filter((m) => m.tipo.toUpperCase() === tipo).reduce((s, m) => s + m.monto, 0));
+
+  const ventasEfectivo = sumaVentas("efectivo");
+  const entradas = sumaMovimientos("ENTRADA");
+  const pagosProveedores = sumaMovimientos("PAGO_PROVEEDOR");
+  const gastos = sumaMovimientos("GASTO");
+
+  return {
+    fondoInicial,
+    numVentas: ventas.length,
+    ventasEfectivo,
+    ventasTarjeta: sumaVentas("tarjeta"),
+    ventasTransferencia: sumaVentas("transferencia"),
+    entradas,
+    pagosProveedores,
+    gastos,
+    efectivoEsperado: redondear(fondoInicial + ventasEfectivo + entradas - pagosProveedores - gastos),
+  };
+}
+
+export interface Arqueo {
+  efectivoContado: number;
+  /** Contado − esperado: positivo sobra, negativo falta. */
+  diferencia: number;
+  /** Lo que excede el fondo inicial se va a la caja fuerte; el fondo se queda para el siguiente turno. */
+  deposito: number;
+}
+
+export function calcularArqueo(cifras: CifrasTurno, efectivoContado: number): Arqueo {
+  return {
+    efectivoContado: redondear(efectivoContado),
+    diferencia: redondear(efectivoContado - cifras.efectivoEsperado),
+    deposito: redondear(Math.max(0, efectivoContado - cifras.fondoInicial)),
+  };
+}
+
+interface DatosComprobante {
+  cifras: CifrasTurno;
+  arqueo: Arqueo;
+  cajero: string;
+  apertura: Date;
+  cierre: Date;
+}
+
+const fechaHora = new Intl.DateTimeFormat("es-MX", { dateStyle: "short", timeStyle: "short" });
+
+/** Comprobante en texto plano de ancho fijo (sirve para impresora térmica de 40 columnas). */
+export function textoComprobante({ cifras, arqueo, cajero, apertura, cierre }: DatosComprobante): string {
+  const ancho = 40;
+  const linea = (izq: string, der = "") => izq + der.padStart(ancho - izq.length, " ");
+  const sep = "-".repeat(ancho);
+  return [
+    "CORTE DE CAJA".padStart((ancho + 13) / 2, " "),
+    sep,
+    linea("Cajero:", cajero),
+    linea("Apertura:", fechaHora.format(apertura)),
+    linea("Cierre:", fechaHora.format(cierre)),
+    linea("Ventas:", String(cifras.numVentas)),
+    sep,
+    linea("Fondo inicial", formatMXN(cifras.fondoInicial)),
+    linea("(+) Ventas efectivo", formatMXN(cifras.ventasEfectivo)),
+    linea("(+) Entradas", formatMXN(cifras.entradas)),
+    linea("(-) Pagos proveedores", formatMXN(cifras.pagosProveedores)),
+    linea("(-) Gastos", formatMXN(cifras.gastos)),
+    linea("(=) Efectivo esperado", formatMXN(cifras.efectivoEsperado)),
+    sep,
+    linea("Efectivo contado", formatMXN(arqueo.efectivoContado)),
+    linea(arqueo.diferencia < 0 ? "Faltante" : "Sobrante", formatMXN(Math.abs(arqueo.diferencia))),
+    linea("Deposito caja fuerte", formatMXN(arqueo.deposito)),
+    linea("Fondo que queda", formatMXN(redondear(arqueo.efectivoContado - arqueo.deposito))),
+    sep,
+    linea("Ventas tarjeta", formatMXN(cifras.ventasTarjeta)),
+    linea("Ventas transferencia", formatMXN(cifras.ventasTransferencia)),
+    sep,
+    "",
+    "Firma: ______________________________",
+  ].join("\n");
+}

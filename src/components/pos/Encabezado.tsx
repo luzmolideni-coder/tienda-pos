@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, LogOut, Search, ShoppingCart, UserRound, X } from "lucide-react";
+import { ArrowDownUp, Calculator, Clock, LogOut, Search, ShoppingCart, UserRound, X } from "lucide-react";
 import type { Turno, Usuario } from "@/types/pos";
 
 const hora = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit" });
@@ -13,16 +13,30 @@ interface EncabezadoProps {
   /** Enter en el buscador: útil con lector de código de barras tipo pistola. */
   onEnterBusqueda: () => void;
   onCambiarUsuario: () => void;
+  onMovimiento: () => void;
+  onCorte: () => void;
 }
 
-export function Encabezado({ usuario, turno, busqueda, onBusqueda, onEnterBusqueda, onCambiarUsuario }: EncabezadoProps) {
+const botonBarra =
+  "touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-100 px-4 font-medium text-slate-700 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-200";
+
+export function Encabezado({
+  usuario,
+  turno,
+  busqueda,
+  onBusqueda,
+  onEnterBusqueda,
+  onCambiarUsuario,
+  onMovimiento,
+  onCorte,
+}: EncabezadoProps) {
   return (
     <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-800 dark:bg-slate-900">
       <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
         <ShoppingCart className="size-6" aria-hidden />
       </span>
 
-      <label className="relative max-w-2xl flex-1">
+      <label className="relative min-w-56 max-w-2xl flex-1">
         <span className="sr-only">Buscar producto por nombre o código</span>
         <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-400" aria-hidden />
         <input
@@ -49,11 +63,26 @@ export function Encabezado({ usuario, turno, busqueda, onBusqueda, onEnterBusque
         )}
       </label>
 
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={onMovimiento} disabled={!turno} className={botonBarra}>
+          <ArrowDownUp className="size-5" aria-hidden />
+          Caja
+        </button>
+        <button type="button" onClick={onCorte} disabled={!turno} className={botonBarra}>
+          <Calculator className="size-5" aria-hidden />
+          Corte
+        </button>
+      </div>
+
       <div className="ml-auto flex items-center gap-3">
         {turno && (
-          <span className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+          <span
+            title="Hora de apertura del turno"
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+          >
             <Clock className="size-4" aria-hidden />
-            Turno desde {hora.format(new Date(turno.fecha_apertura))}
+            <span className="sr-only">Turno abierto desde</span>
+            {hora.format(new Date(turno.fecha_apertura))}
           </span>
         )}
         <div className="flex items-center gap-2 text-right">
@@ -66,7 +95,7 @@ export function Encabezado({ usuario, turno, busqueda, onBusqueda, onEnterBusque
         <button
           type="button"
           onClick={onCambiarUsuario}
-          className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-100 px-4 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          className={botonBarra}
         >
           <LogOut className="size-5" aria-hidden />
           Cambiar usuario

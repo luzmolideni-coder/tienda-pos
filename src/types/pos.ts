@@ -32,3 +32,5 @@ export interface Turno {
 }
 
 export type MetodoPago = "efectivo" | "tarjeta" | "transferencia";
+
+export type TipoMovimiento = "ENTRADA" | "PAGO_PROVEEDOR" | "GASTO";

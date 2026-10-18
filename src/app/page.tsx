@@ -4,15 +4,18 @@ import { CheckCircle2, Loader2, PackageSearch, RefreshCw, Star } from "lucide-re
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Carrito } from "@/components/pos/Carrito";
+import { CorteCaja } from "@/components/pos/CorteCaja";
 import { Encabezado } from "@/components/pos/Encabezado";
 import { GridProductos } from "@/components/pos/GridProductos";
 import { ModalAperturaTurno } from "@/components/pos/ModalAperturaTurno";
 import { ModalCobro } from "@/components/pos/ModalCobro";
+import { ModalMovimiento } from "@/components/pos/ModalMovimiento";
 import { useSession } from "@/components/session/SessionProvider";
 import { useCarrito } from "@/hooks/useCarrito";
-import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarVenta } from "@/lib/datos";
+import { ETIQUETA_MOVIMIENTO } from "@/lib/corte";
+import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento, registrarVenta } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
-import type { MetodoPago, Producto } from "@/types/pos";
+import type { MetodoPago, Producto, TipoMovimiento } from "@/types/pos";
 
 /** Minúsculas y sin acentos, para que "cafe" encuentre "Café". */
 function normalizar(texto: string): string {
@@ -36,6 +39,8 @@ export default function CobroPage() {
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [cobrando, setCobrando] = useState(false);
+  const [registrandoMovimiento, setRegistrandoMovimiento] = useState(false);
+  const [enCorte, setEnCorte] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
 
@@ -126,6 +131,20 @@ export default function CobroPage() {
     lanzarConfeti();
   };
 
+  const confirmarMovimiento = async (tipo: TipoMovimiento, monto: number, concepto: string) => {
+    if (!usuario || !turno) throw new Error("No hay un turno abierto.");
+    await registrarMovimiento({ turnoId: turno.id, usuarioId: usuario.id, tipo, monto, concepto });
+    setRegistrandoMovimiento(false);
+    setAviso(`Movimiento registrado: ${ETIQUETA_MOVIMIENTO[tipo]} · ${formatMXN(monto)}`);
+  };
+
+  // Tras el corte el turno queda CERRADO: se sale para que el siguiente cajero abra el suyo.
+  const terminarCorte = () => {
+    setEnCorte(false);
+    carrito.vaciar();
+    cambiarUsuario();
+  };
+
   if (!listo || !usuario) {
     return (
       <div className="grid h-dvh place-items-center">
@@ -143,6 +162,8 @@ export default function CobroPage() {
         onBusqueda={setBusqueda}
         onEnterBusqueda={agregarDesdeBusqueda}
         onCambiarUsuario={cambiarUsuario}
+        onMovimiento={() => setRegistrandoMovimiento(true)}
+        onCorte={() => setEnCorte(true)}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -230,6 +251,14 @@ export default function CobroPage() {
 
       {cobrando && (
         <ModalCobro total={carrito.total} onCerrar={() => setCobrando(false)} onConfirmar={confirmarVenta} />
+      )}
+
+      {registrandoMovimiento && (
+        <ModalMovimiento onCerrar={() => setRegistrandoMovimiento(false)} onRegistrar={confirmarMovimiento} />
+      )}
+
+      {enCorte && turno && (
+        <CorteCaja turno={turno} cajero={usuario.nombre} onCancelar={() => setEnCorte(false)} onTerminar={terminarCorte} />
       )}
 
       {aviso && (

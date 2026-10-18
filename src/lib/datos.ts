@@ -1,7 +1,8 @@
 import { getSupabase } from "@/lib/supabase/client";
+import { calcularCifras, type Arqueo, type CifrasTurno } from "@/lib/corte";
 import { redondear } from "@/lib/format";
 import { generarUuid } from "@/lib/uuid";
-import type { Id, ItemCarrito, MetodoPago, Producto, Turno, Usuario } from "@/types/pos";
+import type { Id, ItemCarrito, MetodoPago, Producto, TipoMovimiento, Turno, Usuario } from "@/types/pos";
 
 export async function cargarProductosActivos(): Promise<Producto[]> {
   const { data, error } = await getSupabase()
@@ -107,4 +108,60 @@ export async function registrarVenta({ usuario, turnoId, items, total, metodo, p
   });
   if (error) throw error;
   return data;
+}
+
+interface NuevoMovimiento {
+  turnoId: Id;
+  usuarioId: Id;
+  tipo: TipoMovimiento;
+  monto: number;
+  concepto: string;
+}
+
+export async function registrarMovimiento({ turnoId, usuarioId, tipo, monto, concepto }: NuevoMovimiento): Promise<void> {
+  const { error } = await getSupabase()
+    .from("movimientos_caja")
+    .insert({ id: generarUuid(), turno_id: turnoId, usuario_id: usuarioId, tipo, monto: redondear(monto), concepto });
+  if (error) throw error;
+}
+
+/** Suma ventas y movimientos del turno para el corte. */
+export async function cargarCifrasTurno(turno: Turno): Promise<CifrasTurno> {
+  const supabase = getSupabase();
+  const [ventas, movimientos] = await Promise.all([
+    supabase.from("ventas").select("metodo_pago, total").eq("turno_id", turno.id),
+    supabase.from("movimientos_caja").select("tipo, monto").eq("turno_id", turno.id),
+  ]);
+  if (ventas.error) throw ventas.error;
+  if (movimientos.error) throw movimientos.error;
+  return calcularCifras(
+    turno.fondo_inicial,
+    (ventas.data ?? []).map((v) => ({ metodo_pago: String(v.metodo_pago), total: Number(v.total) })),
+    (movimientos.data ?? []).map((m) => ({ tipo: String(m.tipo), monto: Number(m.monto) })),
+  );
+}
+
+/** Cierra el turno guardando las cifras del corte. Devuelve la fecha de cierre registrada. */
+export async function cerrarTurno(turnoId: Id, cifras: CifrasTurno, arqueo: Arqueo): Promise<Date> {
+  const cierre = new Date();
+  const { data, error } = await getSupabase()
+    .from("turnos")
+    .update({
+      estado: "CERRADO",
+      fecha_cierre: cierre.toISOString(),
+      ventas_efectivo: cifras.ventasEfectivo,
+      ventas_tarjeta: cifras.ventasTarjeta,
+      ventas_transferencia: cifras.ventasTransferencia,
+      efectivo_esperado: cifras.efectivoEsperado,
+      efectivo_contado: arqueo.efectivoContado,
+      diferencia: arqueo.diferencia,
+      deposito_caja_fuerte: arqueo.deposito,
+    })
+    .eq("id", turnoId)
+    .eq("estado", "ABIERTO")
+    .select("id");
+  if (error) throw error;
+  // Con RLS un UPDATE sin permiso no da error: simplemente no toca filas.
+  if (!data?.length) throw new Error("El turno no se actualizó: ya estaba cerrado o no hay permiso para cerrarlo.");
+  return cierre;
 }
