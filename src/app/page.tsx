@@ -46,7 +46,6 @@ export default function CobroPage() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
 
-
   const cargar = useCallback(async () => {
     setCargando(true);
     setErrorCarga(null);
@@ -60,9 +59,24 @@ export default function CobroPage() {
     }
   }, []);
 
+  // El catálogo se pide de nuevo cada vez que se entra a Venta (el componente se vuelve a montar).
   useEffect(() => {
     if (usuario) cargar();
   }, [usuario, cargar]);
+
+  // Si la tablet se queda en Venta, una compra recibida en otro dispositivo cambia costos y precios:
+  // al volver la app a primer plano se refresca en silencio (sin spinner y sin tocar el carrito).
+  useEffect(() => {
+    if (!usuario) return;
+    const alVolver = () => {
+      if (document.visibilityState !== "visible") return;
+      cargarProductosActivos()
+        .then(setProductos)
+        .catch((e) => console.error("No se pudo refrescar el catálogo", e));
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [usuario]);
 
   // Al entrar: toma el turno ABIERTO del usuario o su tienda; si no hay, pide abrir uno.
   const resolverTurno = useCallback(async () => {
