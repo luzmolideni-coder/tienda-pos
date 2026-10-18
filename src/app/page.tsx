@@ -6,17 +6,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Carrito } from "@/components/pos/Carrito";
 import { Encabezado } from "@/components/pos/Encabezado";
 import { GridProductos } from "@/components/pos/GridProductos";
+import { ModalAperturaTurno } from "@/components/pos/ModalAperturaTurno";
 import { ModalCobro } from "@/components/pos/ModalCobro";
 import { useSession } from "@/components/session/SessionProvider";
 import { useCarrito } from "@/hooks/useCarrito";
-import { cargarProductosActivos, registrarVenta } from "@/lib/datos";
+import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarVenta } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
 import type { MetodoPago, Producto } from "@/types/pos";
 
 /** Minúsculas y sin acentos, para que "cafe" encuentre "Café". */
 function normalizar(texto: string): string {
-  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
+
+const FONDO_FIJO_SUGERIDO = 350;
 
 async function lanzarConfeti() {
   const confetti = (await import("canvas-confetti")).default;
@@ -25,7 +28,7 @@ async function lanzarConfeti() {
 
 export default function CobroPage() {
   const router = useRouter();
-  const { usuario, listo, cerrarSesion } = useSession();
+  const { usuario, listo, turno, establecerTurno, cerrarSesion } = useSession();
   const carrito = useCarrito();
 
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -34,6 +37,7 @@ export default function CobroPage() {
   const [busqueda, setBusqueda] = useState("");
   const [cobrando, setCobrando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
 
   useEffect(() => {
     if (listo && !usuario) router.replace("/login");
@@ -55,6 +59,31 @@ export default function CobroPage() {
   useEffect(() => {
     if (usuario) cargar();
   }, [usuario, cargar]);
+
+  // Al entrar: toma el turno ABIERTO del usuario o su tienda; si no hay, pide abrir uno.
+  const resolverTurno = useCallback(async () => {
+    if (!usuario) return;
+    setEstadoTurno("buscando");
+    try {
+      const abierto = await buscarTurnoAbierto(usuario);
+      establecerTurno(abierto);
+      setEstadoTurno(abierto ? "listo" : "sin-turno");
+    } catch (e) {
+      console.error(e);
+      setEstadoTurno("error");
+    }
+  }, [usuario, establecerTurno]);
+
+  useEffect(() => {
+    resolverTurno();
+  }, [resolverTurno]);
+
+  const confirmarApertura = async (fondoInicial: number) => {
+    if (!usuario) return;
+    establecerTurno(await abrirTurno(usuario, fondoInicial));
+    setEstadoTurno("listo");
+    setAviso(`Turno abierto con fondo de ${formatMXN(fondoInicial)}`);
+  };
 
   useEffect(() => {
     if (!aviso) return;
@@ -88,7 +117,8 @@ export default function CobroPage() {
 
   const confirmarVenta = async (metodo: MetodoPago, pagaCon: number) => {
     if (!usuario) return;
-    await registrarVenta({ usuario, items: carrito.items, total: carrito.total, metodo, pagaCon });
+    if (!turno) throw new Error("No hay un turno abierto. Cambia de usuario y vuelve a entrar para abrir uno.");
+    await registrarVenta({ usuario, turnoId: turno.id, items: carrito.items, total: carrito.total, metodo, pagaCon });
     const cambio = pagaCon - carrito.total;
     setCobrando(false);
     carrito.vaciar();
@@ -108,6 +138,7 @@ export default function CobroPage() {
     <div className="safe-area flex h-dvh flex-col">
       <Encabezado
         usuario={usuario}
+        turno={turno}
         busqueda={busqueda}
         onBusqueda={setBusqueda}
         onEnterBusqueda={agregarDesdeBusqueda}
@@ -171,6 +202,31 @@ export default function CobroPage() {
           onCobrar={() => setCobrando(true)}
         />
       </div>
+
+      {estadoTurno === "sin-turno" && (
+        <ModalAperturaTurno
+          nombreUsuario={usuario.nombre}
+          fondoSugerido={FONDO_FIJO_SUGERIDO}
+          onAbrir={confirmarApertura}
+          onCambiarUsuario={cambiarUsuario}
+        />
+      )}
+
+      {estadoTurno === "error" && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-6">
+          <div role="alertdialog" className="flex max-w-md flex-col items-center gap-5 rounded-3xl bg-white p-8 text-center shadow-2xl dark:bg-slate-900">
+            <p className="text-lg">No se pudo consultar el turno. Revisa la conexión.</p>
+            <button
+              type="button"
+              onClick={resolverTurno}
+              className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-900 px-6 text-lg font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+            >
+              <RefreshCw className="size-5" aria-hidden />
+              Reintentar
+            </button>
+          </div>
+        </div>
+      )}
 
       {cobrando && (
         <ModalCobro total={carrito.total} onCerrar={() => setCobrando(false)} onConfirmar={confirmarVenta} />

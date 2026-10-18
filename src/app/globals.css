@@ -52,11 +52,13 @@ textarea,
   -webkit-user-select: text;
 }
 
-/* iOS hace zoom en inputs con texto menor a 16px. */
-input,
-select,
-textarea {
-  font-size: max(16px, 1em);
+/* iOS hace zoom en inputs con texto menor a 16px. En la capa base para que text-* de Tailwind pueda agrandarlo. */
+@layer base {
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
 }
 
 /* Botón táctil: área grande y respuesta visual al presionar. */

@@ -1,10 +1,13 @@
 "use client";
 
-import { LogOut, Search, ShoppingCart, UserRound, X } from "lucide-react";
-import type { Usuario } from "@/types/pos";
+import { Clock, LogOut, Search, ShoppingCart, UserRound, X } from "lucide-react";
+import type { Turno, Usuario } from "@/types/pos";
+
+const hora = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit" });
 
 interface EncabezadoProps {
   usuario: Usuario;
+  turno: Turno | null;
   busqueda: string;
   onBusqueda: (texto: string) => void;
   /** Enter en el buscador: útil con lector de código de barras tipo pistola. */
@@ -12,7 +15,7 @@ interface EncabezadoProps {
   onCambiarUsuario: () => void;
 }
 
-export function Encabezado({ usuario, busqueda, onBusqueda, onEnterBusqueda, onCambiarUsuario }: EncabezadoProps) {
+export function Encabezado({ usuario, turno, busqueda, onBusqueda, onEnterBusqueda, onCambiarUsuario }: EncabezadoProps) {
   return (
     <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-800 dark:bg-slate-900">
       <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
@@ -47,6 +50,12 @@ export function Encabezado({ usuario, busqueda, onBusqueda, onEnterBusqueda, onC
       </label>
 
       <div className="ml-auto flex items-center gap-3">
+        {turno && (
+          <span className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+            <Clock className="size-4" aria-hidden />
+            Turno desde {hora.format(new Date(turno.fecha_apertura))}
+          </span>
+        )}
         <div className="flex items-center gap-2 text-right">
           <UserRound className="size-6 text-slate-400" aria-hidden />
           <div className="leading-tight">

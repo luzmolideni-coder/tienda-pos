@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import type { Usuario } from "@/types/pos";
+import type { Turno, Usuario } from "@/types/pos";
 
 const STORAGE_KEY = "pos.usuario";
 
@@ -9,6 +9,12 @@ interface SessionContextValue {
   usuario: Usuario | null;
   /** false hasta leer localStorage; evita redirigir antes de saber si hay sesión. */
   listo: boolean;
+  /**
+   * Turno al que se asocian las ventas. No se guarda en localStorage: se vuelve a consultar
+   * al entrar al POS para no vender sobre un turno que se cerró en otro dispositivo.
+   */
+  turno: Turno | null;
+  establecerTurno: (turno: Turno | null) => void;
   iniciarSesion: (usuario: Usuario) => void;
   cerrarSesion: () => void;
 }
@@ -27,6 +33,7 @@ function leerUsuario(): Usuario | null {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [listo, setListo] = useState(false);
+  const [turno, setTurno] = useState<Turno | null>(null);
 
   useEffect(() => {
     setUsuario(leerUsuario());
@@ -47,10 +54,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
     setUsuario(null);
+    setTurno(null);
   }, []);
 
   return (
-    <SessionContext.Provider value={{ usuario, listo, iniciarSesion, cerrarSesion }}>
+    <SessionContext.Provider value={{ usuario, listo, turno, establecerTurno: setTurno, iniciarSesion, cerrarSesion }}>
       {children}
     </SessionContext.Provider>
   );

@@ -1,6 +1,7 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { redondear } from "@/lib/format";
-import type { Id, ItemCarrito, MetodoPago, Producto, Usuario } from "@/types/pos";
+import { generarUuid } from "@/lib/uuid";
+import type { Id, ItemCarrito, MetodoPago, Producto, Turno, Usuario } from "@/types/pos";
 
 export async function cargarProductosActivos(): Promise<Producto[]> {
   const { data, error } = await getSupabase()
@@ -22,8 +23,52 @@ export async function buscarUsuarioPorPin(pin: string): Promise<Usuario | null> 
   return filas[0] ?? null;
 }
 
+const COLUMNAS_TURNO = "id, usuario_id, tienda_id, fondo_inicial, fecha_apertura";
+
+function normalizarTurno(t: Turno): Turno {
+  return { ...t, fondo_inicial: Number(t.fondo_inicial) };
+}
+
+/**
+ * Turno ABIERTO del usuario o de su tienda. Si hay varios, prefiere el del propio usuario
+ * y luego el más reciente.
+ */
+export async function buscarTurnoAbierto(usuario: Usuario): Promise<Turno | null> {
+  const filtro = usuario.tienda_id
+    ? `usuario_id.eq.${usuario.id},tienda_id.eq.${usuario.tienda_id}`
+    : `usuario_id.eq.${usuario.id}`;
+  const { data, error } = await getSupabase()
+    .from("turnos")
+    .select(COLUMNAS_TURNO)
+    .eq("estado", "ABIERTO")
+    .or(filtro)
+    .order("fecha_apertura", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  const turnos = (data ?? []) as Turno[];
+  const elegido = turnos.find((t) => t.usuario_id === usuario.id) ?? turnos[0];
+  return elegido ? normalizarTurno(elegido) : null;
+}
+
+export async function abrirTurno(usuario: Usuario, fondoInicial: number): Promise<Turno> {
+  // El id se genera aquí para no depender de leer la fila de vuelta (RLS puede no permitir SELECT).
+  const turno: Turno = {
+    id: generarUuid(),
+    usuario_id: usuario.id,
+    tienda_id: usuario.tienda_id,
+    fondo_inicial: redondear(fondoInicial),
+    fecha_apertura: new Date().toISOString(),
+  };
+  const { error } = await getSupabase()
+    .from("turnos")
+    .insert({ ...turno, estado: "ABIERTO" });
+  if (error) throw error;
+  return turno;
+}
+
 interface NuevaVenta {
   usuario: Usuario;
+  turnoId: Id;
   items: ItemCarrito[];
   total: number;
   metodo: MetodoPago;
@@ -32,25 +77,24 @@ interface NuevaVenta {
 }
 
 /** Guarda la venta y sus partidas. Devuelve el id de la venta creada. */
-export async function registrarVenta({ usuario, items, total, metodo, pagaCon }: NuevaVenta): Promise<Id> {
+export async function registrarVenta({ usuario, turnoId, items, total, metodo, pagaCon }: NuevaVenta): Promise<Id> {
   const supabase = getSupabase();
+  const ventaId = generarUuid();
 
-  const { data: venta, error } = await supabase
-    .from("ventas")
-    .insert({
-      tienda_id: usuario.tienda_id,
-      usuario_id: usuario.id,
-      total,
-      metodo_pago: metodo,
-      paga_con: pagaCon,
-      cambio: redondear(pagaCon - total),
-    })
-    .select("id")
-    .single();
+  const { error } = await supabase.from("ventas").insert({
+    id: ventaId,
+    tienda_id: usuario.tienda_id,
+    usuario_id: usuario.id,
+    turno_id: turnoId,
+    total,
+    metodo_pago: metodo,
+    paga_con: pagaCon,
+    cambio: redondear(pagaCon - total),
+  });
   if (error) throw error;
 
   const partidas = items.map(({ producto, cantidad }) => ({
-    venta_id: venta.id,
+    venta_id: ventaId,
     producto_id: producto.id,
     cantidad,
     precio_unitario: producto.precio_venta,
@@ -60,9 +104,9 @@ export async function registrarVenta({ usuario, items, total, metodo, pagaCon }:
   const { error: errorPartidas } = await supabase.from("venta_items").insert(partidas);
   if (errorPartidas) {
     // Sin transacción desde el cliente: se intenta no dejar una venta sin partidas.
-    await supabase.from("ventas").delete().eq("id", venta.id);
+    await supabase.from("ventas").delete().eq("id", ventaId);
     throw errorPartidas;
   }
 
-  return venta.id;
+  return ventaId;
 }

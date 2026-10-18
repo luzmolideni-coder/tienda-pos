@@ -21,4 +21,12 @@ export interface ItemCarrito {
   cantidad: number;
 }
 
+export interface Turno {
+  id: Id;
+  usuario_id: Id;
+  tienda_id: Id | null;
+  fondo_inicial: number;
+  fecha_apertura: string;
+}
+
 export type MetodoPago = "efectivo" | "tarjeta" | "transferencia";
