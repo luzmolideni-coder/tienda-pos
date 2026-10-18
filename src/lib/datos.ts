@@ -165,3 +165,22 @@ export async function cerrarTurno(turnoId: Id, cifras: CifrasTurno, arqueo: Arqu
   if (!data?.length) throw new Error("El turno no se actualizó: ya estaba cerrado o no hay permiso para cerrarlo.");
   return cierre;
 }
+
+/**
+ * Corte ciego: solo envía el efectivo contado. Esperado, diferencia y depósito los calcula y guarda
+ * la función cerrar_turno_ciego en Postgres (supabase/cerrar_turno_ciego.sql) sin devolverlos.
+ */
+export async function cerrarTurnoCiego(turnoId: Id, efectivoContado: number): Promise<Date> {
+  const { data, error } = await getSupabase().rpc("cerrar_turno_ciego", {
+    p_turno_id: turnoId,
+    p_efectivo_contado: redondear(efectivoContado),
+  });
+  if (error) {
+    if (error.code === "PGRST202") {
+      throw new Error("Falta la función cerrar_turno_ciego en Supabase. Avisa al administrador.");
+    }
+    throw error;
+  }
+  const fecha = data && typeof data === "object" && "fecha_cierre" in data ? new Date(String(data.fecha_cierre)) : null;
+  return fecha && !Number.isNaN(fecha.getTime()) ? fecha : new Date();
+}

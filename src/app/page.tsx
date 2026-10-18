@@ -15,6 +15,7 @@ import { useCarrito } from "@/hooks/useCarrito";
 import { ETIQUETA_MOVIMIENTO } from "@/lib/corte";
 import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento, registrarVenta } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
+import { veCifrasDelCorte } from "@/lib/roles";
 import type { MetodoPago, Producto, TipoMovimiento } from "@/types/pos";
 
 /** Minúsculas y sin acentos, para que "cafe" encuentre "Café". */
@@ -258,7 +259,13 @@ export default function CobroPage() {
       )}
 
       {enCorte && turno && (
-        <CorteCaja turno={turno} cajero={usuario.nombre} onCancelar={() => setEnCorte(false)} onTerminar={terminarCorte} />
+        <CorteCaja
+          turno={turno}
+          cajero={usuario.nombre}
+          ciego={!veCifrasDelCorte(usuario.rol)}
+          onCancelar={() => setEnCorte(false)}
+          onTerminar={terminarCorte}
+        />
       )}
 
       {aviso && (

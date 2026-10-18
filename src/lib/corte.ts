@@ -112,3 +112,31 @@ export function textoComprobante({ cifras, arqueo, cajero, apertura, cierre }: D
     "Firma: ______________________________",
   ].join("\n");
 }
+
+interface DatosEntrega {
+  efectivoContado: number;
+  cajero: string;
+  apertura: Date;
+  cierre: Date;
+}
+
+/** Comprobante del corte ciego: solo lo que la cajera entregó, sin esperado, diferencia ni depósito. */
+export function textoComprobanteEntrega({ efectivoContado, cajero, apertura, cierre }: DatosEntrega): string {
+  const ancho = 40;
+  const linea = (izq: string, der = "") => izq + der.padStart(ancho - izq.length, " ");
+  const sep = "-".repeat(ancho);
+  return [
+    "ENTREGA DE EFECTIVO".padStart((ancho + 19) / 2, " "),
+    sep,
+    linea("Cajero:", cajero),
+    linea("Apertura:", fechaHora.format(apertura)),
+    linea("Cierre:", fechaHora.format(cierre)),
+    sep,
+    linea("Efectivo reportado:", formatMXN(efectivoContado)),
+    sep,
+    "",
+    "Entrega: ____________________________",
+    "",
+    "Recibe:  ____________________________",
+  ].join("\n");
+}

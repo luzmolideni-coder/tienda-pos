@@ -3,20 +3,24 @@
 import { CheckCircle2, Download, Loader2, LogOut, Printer, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { aplicarTecla, montoDeTexto, TecladoMonto, type Tecla } from "@/components/pos/TecladoMonto";
-import { calcularArqueo, textoComprobante, type CifrasTurno } from "@/lib/corte";
-import { cargarCifrasTurno, cerrarTurno } from "@/lib/datos";
+import { calcularArqueo, textoComprobante, textoComprobanteEntrega, type CifrasTurno } from "@/lib/corte";
+import { cargarCifrasTurno, cerrarTurno, cerrarTurnoCiego } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
 import type { Turno } from "@/types/pos";
 
 interface CorteCajaProps {
   turno: Turno;
   cajero: string;
+  /** Corte ciego: no se descargan ni muestran cifras; solo se captura el efectivo contado. */
+  ciego: boolean;
   onCancelar: () => void;
   /** Se llama después de cerrar el turno, cuando el usuario sale del resumen. */
   onTerminar: () => void;
 }
 
-type Fase = { tipo: "cargando" } | { tipo: "error"; mensaje: string } | { tipo: "arqueo"; cifras: CifrasTurno } | { tipo: "resumen"; comprobante: string };
+type Fase =
+  | { tipo: "ciego" }
+  | { tipo: "cargando" } | { tipo: "error"; mensaje: string } | { tipo: "arqueo"; cifras: CifrasTurno } | { tipo: "resumen"; comprobante: string };
 
 function Fila({ etiqueta, monto, signo, fuerte }: { etiqueta: string; monto: number; signo?: "+" | "−" | "="; fuerte?: boolean }) {
   return (
@@ -34,8 +38,8 @@ function mensajeDe(e: unknown): string {
   return e && typeof e === "object" && "message" in e ? String(e.message) : "";
 }
 
-export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaProps) {
-  const [fase, setFase] = useState<Fase>({ tipo: "cargando" });
+export function CorteCaja({ turno, cajero, ciego, onCancelar, onTerminar }: CorteCajaProps) {
+  const [fase, setFase] = useState<Fase>(ciego ? { tipo: "ciego" } : { tipo: "cargando" });
   const [contadoTexto, setContadoTexto] = useState("");
   const [confirmando, setConfirmando] = useState(false);
   const [cerrando, setCerrando] = useState(false);
@@ -52,8 +56,8 @@ export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaPr
   }, [turno]);
 
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    if (!ciego) cargar();
+  }, [ciego, cargar]);
 
   const alTecla = useCallback((tecla: Tecla) => {
     setConfirmando(false);
@@ -65,19 +69,23 @@ export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaPr
   const arqueo = cifras ? calcularArqueo(cifras, montoDeTexto(contadoTexto)) : null;
 
   const cerrar = async () => {
-    if (!cifras || !arqueo || !capturado || cerrando) return;
+    if (!capturado || cerrando || (!ciego && (!cifras || !arqueo))) return;
     if (!confirmando) {
       setConfirmando(true);
       return;
     }
     setCerrando(true);
     setErrorCierre(null);
+    const apertura = new Date(turno.fecha_apertura);
     try {
-      const cierre = await cerrarTurno(turno.id, cifras, arqueo);
-      setFase({
-        tipo: "resumen",
-        comprobante: textoComprobante({ cifras, arqueo, cajero, apertura: new Date(turno.fecha_apertura), cierre }),
-      });
+      if (ciego) {
+        const efectivoContado = montoDeTexto(contadoTexto);
+        const cierre = await cerrarTurnoCiego(turno.id, efectivoContado);
+        setFase({ tipo: "resumen", comprobante: textoComprobanteEntrega({ efectivoContado, cajero, apertura, cierre }) });
+      } else if (cifras && arqueo) {
+        const cierre = await cerrarTurno(turno.id, cifras, arqueo);
+        setFase({ tipo: "resumen", comprobante: textoComprobante({ cifras, arqueo, cajero, apertura, cierre }) });
+      }
     } catch (e) {
       console.error(e);
       setErrorCierre(`No se pudo cerrar el turno. ${mensajeDe(e)}`.trim());
@@ -86,6 +94,32 @@ export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaPr
       setCerrando(false);
     }
   };
+
+  const alertaError = errorCierre && (
+    <p role="alert" className="rounded-xl bg-red-50 p-4 font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+      {errorCierre}
+    </p>
+  );
+
+  const botonCerrar = (
+    <button
+      type="button"
+      disabled={!capturado || cerrando}
+      onClick={cerrar}
+      className={`pressable flex h-16 items-center justify-center gap-3 rounded-2xl text-xl font-semibold text-white disabled:opacity-40 ${
+        confirmando ? "bg-red-600" : "bg-emerald-600"
+      }`}
+    >
+      {cerrando && <Loader2 className="size-7 animate-spin" aria-hidden />}
+      {cerrando
+        ? "Cerrando turno…"
+        : confirmando
+          ? "Toca de nuevo para confirmar el cierre"
+          : capturado
+            ? "Cerrar turno"
+            : "Captura el efectivo contado"}
+    </button>
+  );
 
   const descargar = (texto: string) => {
     const url = URL.createObjectURL(new Blob([texto], { type: "text/plain;charset=utf-8" }));
@@ -131,6 +165,20 @@ export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaPr
               <RefreshCw className="size-5" aria-hidden />
               Reintentar
             </button>
+          </div>
+        )}
+
+        {fase.tipo === "ciego" && (
+          <div className="mx-auto flex max-w-md flex-col gap-5 rounded-3xl bg-white p-6 shadow-sm dark:bg-slate-900">
+            <div className="text-center">
+              <p className="text-lg font-medium text-slate-600 dark:text-slate-300">Cuenta el efectivo en caja y captúralo</p>
+              <p className={`mt-2 text-6xl font-bold tabular-nums ${capturado ? "" : "text-slate-300 dark:text-slate-600"}`}>
+                {formatMXN(montoDeTexto(contadoTexto))}
+              </p>
+            </div>
+            <TecladoMonto onTecla={alTecla} deshabilitado={cerrando} />
+            {alertaError}
+            {botonCerrar}
           </div>
         )}
 
@@ -204,29 +252,9 @@ export function CorteCaja({ turno, cajero, onCancelar, onTerminar }: CorteCajaPr
 
               <TecladoMonto onTecla={alTecla} deshabilitado={cerrando} />
 
-              {errorCierre && (
-                <p role="alert" className="rounded-xl bg-red-50 p-4 font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
-                  {errorCierre}
-                </p>
-              )}
+              {alertaError}
 
-              <button
-                type="button"
-                disabled={!capturado || cerrando}
-                onClick={cerrar}
-                className={`pressable flex h-16 items-center justify-center gap-3 rounded-2xl text-xl font-semibold text-white disabled:opacity-40 ${
-                  confirmando ? "bg-red-600" : "bg-emerald-600"
-                }`}
-              >
-                {cerrando && <Loader2 className="size-7 animate-spin" aria-hidden />}
-                {cerrando
-                  ? "Cerrando turno…"
-                  : confirmando
-                    ? "Toca de nuevo para confirmar el cierre"
-                    : capturado
-                      ? "Cerrar turno"
-                      : "Captura el efectivo contado"}
-              </button>
+              {botonCerrar}
             </section>
           </div>
         )}
