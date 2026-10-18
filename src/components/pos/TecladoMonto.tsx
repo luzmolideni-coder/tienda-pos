@@ -26,43 +26,49 @@ interface TecladoMontoProps {
   /** Recibe la tecla; el padre debe aplicarla con setState(prev => aplicarTecla(prev, tecla)). */
   onTecla: (tecla: Tecla) => void;
   deshabilitado?: boolean;
+  /** false para cantidades enteras (piezas): oculta el punto decimal. */
+  decimales?: boolean;
 }
 
 const FILAS: Tecla[] = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "borrar"];
 
 /** Teclado numérico grande para montos. También acepta el teclado físico si no hay un campo de texto enfocado. */
-export function TecladoMonto({ onTecla, deshabilitado }: TecladoMontoProps) {
+export function TecladoMonto({ onTecla, deshabilitado, decimales = true }: TecladoMontoProps) {
   useEffect(() => {
     if (deshabilitado) return;
     const alPresionar = (e: KeyboardEvent) => {
       const destino = e.target as HTMLElement | null;
       if (destino && (destino.tagName === "INPUT" || destino.tagName === "TEXTAREA")) return;
       if (/^\d$/.test(e.key)) onTecla(e.key as Tecla);
-      else if (e.key === "." || e.key === ",") onTecla(".");
+      else if (decimales && (e.key === "." || e.key === ",")) onTecla(".");
       else if (e.key === "Backspace") onTecla("borrar");
     };
     window.addEventListener("keydown", alPresionar);
     return () => window.removeEventListener("keydown", alPresionar);
-  }, [deshabilitado, onTecla]);
+  }, [deshabilitado, decimales, onTecla]);
 
   return (
     <div className="grid grid-cols-3 gap-2">
-      {FILAS.map((tecla) => (
-        <button
-          key={tecla}
-          type="button"
-          disabled={deshabilitado}
-          aria-label={tecla === "borrar" ? "Borrar" : tecla === "." ? "Punto decimal" : undefined}
-          onClick={() => onTecla(tecla)}
-          className={`pressable grid h-16 place-items-center rounded-2xl text-2xl font-semibold disabled:opacity-40 ${
-            tecla === "borrar"
-              ? "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
-              : "bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
-          }`}
-        >
-          {tecla === "borrar" ? <Delete className="size-7" aria-hidden /> : tecla}
-        </button>
-      ))}
+      {FILAS.map((tecla) =>
+        tecla === "." && !decimales ? (
+          <span key={tecla} aria-hidden />
+        ) : (
+          <button
+            key={tecla}
+            type="button"
+            disabled={deshabilitado}
+            aria-label={tecla === "borrar" ? "Borrar" : tecla === "." ? "Punto decimal" : undefined}
+            onClick={() => onTecla(tecla)}
+            className={`pressable grid h-16 place-items-center rounded-2xl text-2xl font-semibold disabled:opacity-40 ${
+              tecla === "borrar"
+                ? "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                : "bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+            }`}
+          >
+            {tecla === "borrar" ? <Delete className="size-7" aria-hidden /> : tecla}
+          </button>
+        ),
+      )}
     </div>
   );
 }

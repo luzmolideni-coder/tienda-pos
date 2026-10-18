@@ -24,7 +24,11 @@ export function PinPad({ pin, largoMaximo, deshabilitado, onDigito, onBorrar, on
     const alPresionar = (e: KeyboardEvent) => {
       if (/^\d$/.test(e.key)) onDigito(e.key);
       else if (e.key === "Backspace") onBorrar();
-      else if (e.key === "Enter") onIngresar();
+      else if (e.key === "Enter") {
+        // Evita que Enter también active la última tecla tocada (que conserva el foco).
+        e.preventDefault();
+        onIngresar();
+      }
     };
     window.addEventListener("keydown", alPresionar);
     return () => window.removeEventListener("keydown", alPresionar);

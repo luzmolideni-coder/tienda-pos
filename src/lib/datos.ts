@@ -7,7 +7,7 @@ import type { Id, ItemCarrito, MetodoPago, Producto, TipoMovimiento, Turno, Usua
 export async function cargarProductosActivos(): Promise<Producto[]> {
   const { data, error } = await getSupabase()
     .from("productos")
-    .select("id, nombre, codigo_barras, precio_venta, costo_actual, es_favorito")
+    .select("id, nombre, codigo_barras, precio_venta, costo_actual, es_favorito, proveedor_id, es_precio_fijo")
     .eq("activo", true)
     .order("nombre");
   if (error) throw error;
@@ -17,6 +17,7 @@ export async function cargarProductosActivos(): Promise<Producto[]> {
     precio_venta: Number(p.precio_venta),
     costo_actual: p.costo_actual == null ? null : Number(p.costo_actual),
     es_favorito: !!p.es_favorito,
+    es_precio_fijo: !!p.es_precio_fijo,
   }));
 }
 

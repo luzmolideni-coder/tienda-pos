@@ -10,7 +10,8 @@ import { GridProductos } from "@/components/pos/GridProductos";
 import { ModalAperturaTurno } from "@/components/pos/ModalAperturaTurno";
 import { ModalCobro } from "@/components/pos/ModalCobro";
 import { ModalMovimiento } from "@/components/pos/ModalMovimiento";
-import { useSession } from "@/components/session/SessionProvider";
+import { NavLateral } from "@/components/nav/NavLateral";
+import { useRequiereSesion } from "@/components/session/SessionProvider";
 import { useCarrito } from "@/hooks/useCarrito";
 import { ETIQUETA_MOVIMIENTO } from "@/lib/corte";
 import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento, registrarVenta } from "@/lib/datos";
@@ -32,7 +33,7 @@ async function lanzarConfeti() {
 
 export default function CobroPage() {
   const router = useRouter();
-  const { usuario, listo, turno, establecerTurno, cerrarSesion } = useSession();
+  const { usuario, listo, turno, establecerTurno, cerrarSesion } = useRequiereSesion();
   const carrito = useCarrito();
 
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -45,9 +46,6 @@ export default function CobroPage() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
 
-  useEffect(() => {
-    if (listo && !usuario) router.replace("/login");
-  }, [listo, usuario, router]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -155,74 +153,75 @@ export default function CobroPage() {
   }
 
   return (
-    <div className="safe-area flex h-dvh flex-col">
-      <Encabezado
-        usuario={usuario}
-        turno={turno}
-        busqueda={busqueda}
-        onBusqueda={setBusqueda}
-        onEnterBusqueda={agregarDesdeBusqueda}
-        onCambiarUsuario={cambiarUsuario}
-        onMovimiento={() => setRegistrandoMovimiento(true)}
-        onCorte={() => setEnCorte(true)}
-      />
-
-      <div className="flex min-h-0 flex-1">
-        <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-6">
-          {cargando ? (
-            <div className="grid h-full place-items-center">
-              <Loader2 className="size-10 animate-spin text-emerald-600" aria-label="Cargando productos" />
-            </div>
-          ) : errorCarga ? (
-            <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-500">
-              <p className="text-lg">{errorCarga}</p>
-              <button
-                type="button"
-                onClick={cargar}
-                className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-900 px-6 text-lg font-medium text-white dark:bg-slate-100 dark:text-slate-900"
-              >
-                <RefreshCw className="size-5" aria-hidden />
-                Reintentar
-              </button>
-            </div>
-          ) : (
-            <>
-              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-600 dark:text-slate-300">
-                {termino ? (
-                  `${visibles.length} resultado${visibles.length === 1 ? "" : "s"}`
-                ) : (
-                  <>
-                    <Star className="size-5 fill-amber-400 text-amber-400" aria-hidden />
-                    Favoritos
-                  </>
-                )}
-              </h2>
-              {visibles.length > 0 ? (
-                <GridProductos productos={visibles} onAgregar={carrito.agregar} />
-              ) : (
-                <div className="flex flex-col items-center gap-3 py-24 text-slate-400">
-                  <PackageSearch className="size-14" aria-hidden />
-                  <p className="text-lg">
-                    {termino
-                      ? "Ningún producto coincide con la búsqueda"
-                      : productos.length === 0
-                        ? "No hay productos activos"
-                        : "No hay favoritos. Usa el buscador para encontrar productos."}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </main>
-
-        <Carrito
-          items={carrito.items}
-          total={carrito.total}
-          piezas={carrito.piezas}
-          onCambiarCantidad={carrito.cambiarCantidad}
-          onVaciar={carrito.vaciar}
-          onCobrar={() => setCobrando(true)}
+    <div className="safe-area flex h-dvh">
+      <NavLateral />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Encabezado
+          turno={turno}
+          busqueda={busqueda}
+          onBusqueda={setBusqueda}
+          onEnterBusqueda={agregarDesdeBusqueda}
+          onMovimiento={() => setRegistrandoMovimiento(true)}
+          onCorte={() => setEnCorte(true)}
         />
+
+        <div className="flex min-h-0 flex-1">
+          <main className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-6">
+            {cargando ? (
+              <div className="grid h-full place-items-center">
+                <Loader2 className="size-10 animate-spin text-emerald-600" aria-label="Cargando productos" />
+              </div>
+            ) : errorCarga ? (
+              <div className="flex h-full flex-col items-center justify-center gap-4 text-slate-500">
+                <p className="text-lg">{errorCarga}</p>
+                <button
+                  type="button"
+                  onClick={cargar}
+                  className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-900 px-6 text-lg font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+                >
+                  <RefreshCw className="size-5" aria-hidden />
+                  Reintentar
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-slate-600 dark:text-slate-300">
+                  {termino ? (
+                    `${visibles.length} resultado${visibles.length === 1 ? "" : "s"}`
+                  ) : (
+                    <>
+                      <Star className="size-5 fill-amber-400 text-amber-400" aria-hidden />
+                      Favoritos
+                    </>
+                  )}
+                </h2>
+                {visibles.length > 0 ? (
+                  <GridProductos productos={visibles} onAgregar={carrito.agregar} />
+                ) : (
+                  <div className="flex flex-col items-center gap-3 py-24 text-slate-400">
+                    <PackageSearch className="size-14" aria-hidden />
+                    <p className="text-lg">
+                      {termino
+                        ? "Ningún producto coincide con la búsqueda"
+                        : productos.length === 0
+                          ? "No hay productos activos"
+                          : "No hay favoritos. Usa el buscador para encontrar productos."}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </main>
+
+          <Carrito
+            items={carrito.items}
+            total={carrito.total}
+            piezas={carrito.piezas}
+            onCambiarCantidad={carrito.cambiarCantidad}
+            onVaciar={carrito.vaciar}
+            onCobrar={() => setCobrando(true)}
+          />
+        </div>
       </div>
 
       {estadoTurno === "sin-turno" && (

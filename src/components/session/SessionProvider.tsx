@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { Turno, Usuario } from "@/types/pos";
 
@@ -68,4 +69,14 @@ export function useSession(): SessionContextValue {
   const ctx = useContext(SessionContext);
   if (!ctx) throw new Error("useSession debe usarse dentro de <SessionProvider>");
   return ctx;
+}
+
+/** Para pantallas internas: manda al PIN si no hay sesión. Devuelve la sesión. */
+export function useRequiereSesion(): SessionContextValue {
+  const sesion = useSession();
+  const router = useRouter();
+  useEffect(() => {
+    if (sesion.listo && !sesion.usuario) router.replace("/login");
+  }, [sesion.listo, sesion.usuario, router]);
+  return sesion;
 }

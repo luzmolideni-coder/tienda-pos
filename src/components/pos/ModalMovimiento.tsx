@@ -8,6 +8,8 @@ import { formatMXN } from "@/lib/format";
 import type { TipoMovimiento } from "@/types/pos";
 
 interface ModalMovimientoProps {
+  /** Datos prellenados, p. ej. al pagar una compra recién recibida. */
+  inicial?: { tipo: TipoMovimiento; monto: number; concepto: string };
   onCerrar: () => void;
   /** Debe lanzar un error si no se pudo guardar. */
   onRegistrar: (tipo: TipoMovimiento, monto: number, concepto: string) => Promise<void>;
@@ -34,10 +36,10 @@ const TIPOS: { tipo: TipoMovimiento; Icono: typeof Truck; placeholder: string; c
   },
 ];
 
-export function ModalMovimiento({ onCerrar, onRegistrar }: ModalMovimientoProps) {
-  const [tipo, setTipo] = useState<TipoMovimiento>("ENTRADA");
-  const [montoTexto, setMontoTexto] = useState("");
-  const [concepto, setConcepto] = useState("");
+export function ModalMovimiento({ inicial, onCerrar, onRegistrar }: ModalMovimientoProps) {
+  const [tipo, setTipo] = useState<TipoMovimiento>(inicial?.tipo ?? "ENTRADA");
+  const [montoTexto, setMontoTexto] = useState(inicial ? String(inicial.monto) : "");
+  const [concepto, setConcepto] = useState(inicial?.concepto ?? "");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

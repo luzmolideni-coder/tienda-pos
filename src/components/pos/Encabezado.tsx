@@ -1,18 +1,16 @@
 "use client";
 
-import { ArrowDownUp, Calculator, Clock, LogOut, Search, ShoppingCart, UserRound, X } from "lucide-react";
-import type { Turno, Usuario } from "@/types/pos";
+import { ArrowDownUp, Calculator, Clock, Search, X } from "lucide-react";
+import type { Turno } from "@/types/pos";
 
 const hora = new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit" });
 
 interface EncabezadoProps {
-  usuario: Usuario;
   turno: Turno | null;
   busqueda: string;
   onBusqueda: (texto: string) => void;
   /** Enter en el buscador: útil con lector de código de barras tipo pistola. */
   onEnterBusqueda: () => void;
-  onCambiarUsuario: () => void;
   onMovimiento: () => void;
   onCorte: () => void;
 }
@@ -21,21 +19,15 @@ const botonBarra =
   "touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-100 px-4 font-medium text-slate-700 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-200";
 
 export function Encabezado({
-  usuario,
   turno,
   busqueda,
   onBusqueda,
   onEnterBusqueda,
-  onCambiarUsuario,
   onMovimiento,
   onCorte,
 }: EncabezadoProps) {
   return (
     <header className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-800 dark:bg-slate-900">
-      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
-        <ShoppingCart className="size-6" aria-hidden />
-      </span>
-
       <label className="relative min-w-56 max-w-2xl flex-1">
         <span className="sr-only">Buscar producto por nombre o código</span>
         <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-slate-400" aria-hidden />
@@ -85,21 +77,6 @@ export function Encabezado({
             {hora.format(new Date(turno.fecha_apertura))}
           </span>
         )}
-        <div className="flex items-center gap-2 text-right">
-          <UserRound className="size-6 text-slate-400" aria-hidden />
-          <div className="leading-tight">
-            <p className="font-semibold">{usuario.nombre}</p>
-            <p className="text-sm capitalize text-slate-500">{usuario.rol}</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onCambiarUsuario}
-          className={botonBarra}
-        >
-          <LogOut className="size-5" aria-hidden />
-          Cambiar usuario
-        </button>
       </div>
     </header>
   );
