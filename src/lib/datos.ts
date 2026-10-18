@@ -81,25 +81,13 @@ interface NuevaVenta {
   pagaCon: number;
 }
 
-/** Guarda la venta y sus partidas. Devuelve el id de la venta creada. */
-export async function registrarVenta({ usuario, turnoId, items, total, metodo, pagaCon }: NuevaVenta): Promise<Id> {
-  const supabase = getSupabase();
-  const ventaId = generarUuid();
-
-  const { error } = await supabase.from("ventas").insert({
-    id: ventaId,
-    tienda_id: usuario.tienda_id,
-    usuario_id: usuario.id,
-    turno_id: turnoId,
-    total,
-    metodo_pago: metodo,
-    paga_con: pagaCon,
-    cambio: redondear(pagaCon - total),
-  });
-  if (error) throw error;
-
+/**
+ * Guarda la venta y sus partidas con la función registrar_venta de Supabase, en una sola
+ * transacción: si cualquier partida falla, no queda ninguna venta a medias.
+ * Devuelve lo que regrese la función (normalmente el id de la venta).
+ */
+export async function registrarVenta({ usuario, turnoId, items, total, metodo, pagaCon }: NuevaVenta): Promise<unknown> {
   const partidas = items.map(({ producto, cantidad }) => ({
-    venta_id: ventaId,
     producto_id: producto.id,
     cantidad,
     precio_unitario: producto.precio_venta,
@@ -107,12 +95,16 @@ export async function registrarVenta({ usuario, turnoId, items, total, metodo, p
     subtotal: redondear(producto.precio_venta * cantidad),
   }));
 
-  const { error: errorPartidas } = await supabase.from("venta_items").insert(partidas);
-  if (errorPartidas) {
-    // Sin transacción desde el cliente: se intenta no dejar una venta sin partidas.
-    await supabase.from("ventas").delete().eq("id", ventaId);
-    throw errorPartidas;
-  }
-
-  return ventaId;
+  const { data, error } = await getSupabase().rpc("registrar_venta", {
+    p_tienda_id: usuario.tienda_id,
+    p_usuario_id: usuario.id,
+    p_turno_id: turnoId,
+    p_total: total,
+    p_paga_con: pagaCon,
+    p_cambio: redondear(pagaCon - total),
+    p_metodo_pago: metodo,
+    p_items: partidas,
+  });
+  if (error) throw error;
+  return data;
 }
