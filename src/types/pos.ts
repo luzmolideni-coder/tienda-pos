@@ -13,6 +13,8 @@ export interface Producto {
   nombre: string;
   codigo_barras: string | null;
   precio_venta: number;
+  /** Costo vigente; se copia a la partida para calcular la utilidad histórica. */
+  costo_actual: number | null;
   es_favorito: boolean;
 }
 

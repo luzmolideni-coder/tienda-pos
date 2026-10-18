@@ -6,12 +6,17 @@ import type { Id, ItemCarrito, MetodoPago, Producto, Turno, Usuario } from "@/ty
 export async function cargarProductosActivos(): Promise<Producto[]> {
   const { data, error } = await getSupabase()
     .from("productos")
-    .select("id, nombre, codigo_barras, precio_venta, es_favorito")
+    .select("id, nombre, codigo_barras, precio_venta, costo_actual, es_favorito")
     .eq("activo", true)
     .order("nombre");
   if (error) throw error;
   // numeric de Postgres puede llegar como string según la configuración; se normaliza a number.
-  return (data ?? []).map((p) => ({ ...p, precio_venta: Number(p.precio_venta), es_favorito: !!p.es_favorito }));
+  return (data ?? []).map((p) => ({
+    ...p,
+    precio_venta: Number(p.precio_venta),
+    costo_actual: p.costo_actual == null ? null : Number(p.costo_actual),
+    es_favorito: !!p.es_favorito,
+  }));
 }
 
 /** Valida el PIN en el servidor (función login_con_pin); los PINs nunca llegan al navegador. */
@@ -98,6 +103,7 @@ export async function registrarVenta({ usuario, turnoId, items, total, metodo, p
     producto_id: producto.id,
     cantidad,
     precio_unitario: producto.precio_venta,
+    costo_unitario_historico: producto.costo_actual ?? 0,
     subtotal: redondear(producto.precio_venta * cantidad),
   }));
 
