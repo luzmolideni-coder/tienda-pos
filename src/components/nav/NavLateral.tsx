@@ -11,7 +11,7 @@ const SECCIONES = [
   { href: "/", etiqueta: "Vender", Icono: ShoppingCart, soloAdmin: false },
   { href: "/operacion/pedidos", etiqueta: "Pedidos", Icono: ClipboardList, soloAdmin: false },
   { href: "/operacion/compras", etiqueta: "Compras", Icono: PackageCheck, soloAdmin: false },
-  { href: "/direccion/pedidos", etiqueta: "Dirección", Icono: Landmark, soloAdmin: true },
+  { href: "/direccion", etiqueta: "Dirección", Icono: Landmark, soloAdmin: true },
 ];
 
 /** Riel de navegación a la izquierda: ocupa poco ancho y deja botones grandes para el dedo. */
