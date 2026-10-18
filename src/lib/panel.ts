@@ -1,6 +1,7 @@
 import { redondear } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
-import type { Id } from "@/types/pos";
+import { rpcSeguro } from "@/lib/supabase/rpc";
+import type { Id, Usuario } from "@/types/pos";
 
 /* ---------- Filtros ---------- */
 
@@ -60,24 +61,6 @@ export async function cargarTiendas(): Promise<Tienda[]> {
   return data ?? [];
 }
 
-/* ---------- Lectura paginada ---------- */
-
-const PAGINA = 1000;
-
-/**
- * PostgREST corta las respuestas en 1000 filas por omisión; para un mes de ventas eso se queda corto.
- * Pide páginas hasta que una venga incompleta.
- */
-async function traerTodo<T>(pedir: (desde: number, hasta: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
-  const filas: T[] = [];
-  for (let desde = 0; ; desde += PAGINA) {
-    const { data, error } = await pedir(desde, desde + PAGINA - 1);
-    if (error) throw error;
-    filas.push(...(data ?? []));
-    if (!data || data.length < PAGINA) return filas;
-  }
-}
-
 /* ---------- KPIs ---------- */
 
 export interface Kpis {
@@ -94,81 +77,48 @@ export interface Kpis {
   gastos: number;
 }
 
-interface VentaConPartidas {
-  total: number;
-  metodo_pago: string;
-  venta_items: { cantidad: number; costo_unitario_historico: number | null }[] | null;
-}
-
-interface MovimientoResumen {
-  tipo: string;
-  monto: number;
+/** Totales que suma la base (panel_kpis); de aquí salen utilidad, margen y ticket promedio. */
+export interface TotalesPeriodo {
+  ventas_totales: number;
+  num_ventas: number;
+  costo_vendido: number;
+  efectivo: number;
+  tarjeta: number;
+  transferencia: number;
+  entradas: number;
+  pagos_proveedores: number;
+  gastos: number;
 }
 
 /** Utilidad bruta = Ventas − Σ(cantidad × costo_unitario_historico). */
-export function calcularKpis(ventas: VentaConPartidas[], movimientos: MovimientoResumen[]): Kpis {
-  const ventasTotales = redondear(ventas.reduce((s, v) => s + Number(v.total), 0));
-  const costoVendido = redondear(
-    ventas.reduce(
-      (s, v) => s + (v.venta_items ?? []).reduce((t, i) => t + Number(i.cantidad) * Number(i.costo_unitario_historico ?? 0), 0),
-      0,
-    ),
-  );
+export function calcularKpis(t: TotalesPeriodo): Kpis {
+  const ventasTotales = redondear(Number(t.ventas_totales));
+  const numVentas = Number(t.num_ventas);
+  const costoVendido = redondear(Number(t.costo_vendido));
   const utilidadBruta = redondear(ventasTotales - costoVendido);
-  const porMetodo = { efectivo: 0, tarjeta: 0, transferencia: 0 };
-  for (const v of ventas) {
-    const m = v.metodo_pago.toLowerCase() as keyof typeof porMetodo;
-    if (m in porMetodo) porMetodo[m] = redondear(porMetodo[m] + Number(v.total));
-  }
-  const suma = (tipo: string) =>
-    redondear(movimientos.filter((m) => m.tipo.toUpperCase() === tipo).reduce((s, m) => s + Number(m.monto), 0));
-
   return {
     ventasTotales,
-    numVentas: ventas.length,
+    numVentas,
     costoVendido,
     utilidadBruta,
     margenPct: ventasTotales > 0 ? Math.round((utilidadBruta / ventasTotales) * 1000) / 10 : null,
-    ticketPromedio: ventas.length ? redondear(ventasTotales / ventas.length) : 0,
-    porMetodo,
-    entradas: suma("ENTRADA"),
-    pagosProveedores: suma("PAGO_PROVEEDOR"),
-    gastos: suma("GASTO"),
+    ticketPromedio: numVentas ? redondear(ventasTotales / numVentas) : 0,
+    porMetodo: { efectivo: Number(t.efectivo), tarjeta: Number(t.tarjeta), transferencia: Number(t.transferencia) },
+    entradas: Number(t.entradas),
+    pagosProveedores: Number(t.pagos_proveedores),
+    gastos: Number(t.gastos),
   };
 }
 
-export async function cargarKpis(tienda: FiltroTienda, rango: Rango): Promise<Kpis> {
-  const supabase = getSupabase();
-  const desde = rango.desde.toISOString();
-  const hasta = rango.hasta.toISOString();
-
-  const ventas = traerTodo<VentaConPartidas>((a, b) => {
-    let q = supabase
-      .from("ventas")
-      .select("total, metodo_pago, venta_items(cantidad, costo_unitario_historico)")
-      .gte("created_at", desde)
-      .lt("created_at", hasta)
-      .order("created_at")
-      .range(a, b);
-    if (tienda) q = q.eq("tienda_id", tienda);
-    return q;
+/** Las sumas se hacen en la base (sin límite de 1000 filas y sin exponer ventas a la clave pública). */
+export async function cargarKpis(usuario: Usuario, tienda: FiltroTienda, rango: Rango): Promise<Kpis> {
+  const totales = await rpcSeguro<TotalesPeriodo>("panel_kpis", {
+    p_token: usuario.token,
+    p_tienda_id: tienda,
+    p_desde: rango.desde.toISOString(),
+    p_hasta: rango.hasta.toISOString(),
   });
-
-  // movimientos_caja no tiene tienda: se filtra por la tienda de su turno.
-  const movimientos = traerTodo<MovimientoResumen>((a, b) => {
-    let q = supabase
-      .from("movimientos_caja")
-      .select("tipo, monto, turnos!inner(tienda_id)")
-      .gte("created_at", desde)
-      .lt("created_at", hasta)
-      .order("created_at")
-      .range(a, b);
-    if (tienda) q = q.eq("turnos.tienda_id", tienda);
-    return q;
-  });
-
-  const [v, m] = await Promise.all([ventas, movimientos]);
-  return calcularKpis(v, m);
+  return calcularKpis(totales);
 }
 
 /* ---------- Semáforo de inventario ---------- */
@@ -202,51 +152,40 @@ export interface FilaInventario {
 
 interface RenglonInventario {
   tienda_id: Id;
+  tienda_nombre: string;
   producto_id: Id;
-  stock_actual: number | null;
-  stock_minimo?: number | null;
-  stock_objetivo?: number | null;
+  producto_nombre: string;
+  stock_actual: number;
+  stock_minimo: number;
+  registrado: boolean;
 }
 
 const ORDEN: Record<Semaforo, number> = { rojo: 0, amarillo: 1, verde: 2 };
 
-export async function cargarInventario(tienda: FiltroTienda, tiendas: Tienda[]): Promise<FilaInventario[]> {
-  const supabase = getSupabase();
-  let q = supabase.from("inventario_tienda").select("*");
-  if (tienda) q = q.eq("tienda_id", tienda);
-  const [inv, prods] = await Promise.all([
-    q,
-    supabase.from("productos").select("id, nombre").eq("activo", true).order("nombre"),
-  ]);
-  if (inv.error) throw inv.error;
-  if (prods.error) throw prods.error;
-
-  const renglones = new Map<string, RenglonInventario>();
-  for (const r of (inv.data ?? []) as RenglonInventario[]) renglones.set(`${r.tienda_id}|${r.producto_id}`, r);
-
-  const enAlcance = tienda ? tiendas.filter((t) => String(t.id) === tienda) : tiendas;
-  const filas: FilaInventario[] = [];
-  for (const t of enAlcance) {
-    for (const p of prods.data ?? []) {
-      const r = renglones.get(`${t.id}|${p.id}`);
-      const stockActual = Number(r?.stock_actual ?? 0);
-      // stock_minimo si la tabla lo tiene; si no, stock_objetivo hace de mínimo.
-      const stockMinimo = Number(r?.stock_minimo ?? r?.stock_objetivo ?? 0);
-      filas.push({
-        tiendaId: String(t.id),
-        tiendaNombre: t.nombre,
-        productoId: String(p.id),
-        productoNombre: p.nombre,
+/** panel_inventario cruza tiendas × productos activos; sin renglón en inventario_tienda cuenta como 0. */
+export async function cargarInventario(usuario: Usuario, tienda: FiltroTienda): Promise<FilaInventario[]> {
+  const renglones = await rpcSeguro<RenglonInventario[]>("panel_inventario", { p_token: usuario.token, p_tienda_id: tienda });
+  return (renglones ?? [])
+    .map((r) => {
+      const stockActual = Number(r.stock_actual);
+      const stockMinimo = Number(r.stock_minimo);
+      return {
+        tiendaId: String(r.tienda_id),
+        tiendaNombre: r.tienda_nombre,
+        productoId: String(r.producto_id),
+        productoNombre: r.producto_nombre,
         stockActual,
         stockMinimo,
-        registrado: !!r,
+        registrado: r.registrado,
         estado: semaforo(stockActual, stockMinimo),
-      });
-    }
-  }
-  return filas.sort(
-    (a, b) => ORDEN[a.estado] - ORDEN[b.estado] || a.tiendaNombre.localeCompare(b.tiendaNombre, "es") || a.productoNombre.localeCompare(b.productoNombre, "es"),
-  );
+      };
+    })
+    .sort(
+      (a, b) =>
+        ORDEN[a.estado] - ORDEN[b.estado] ||
+        a.tiendaNombre.localeCompare(b.tiendaNombre, "es") ||
+        a.productoNombre.localeCompare(b.productoNombre, "es"),
+    );
 }
 
 /* ---------- Historial de cortes ---------- */
@@ -254,7 +193,7 @@ export async function cargarInventario(tienda: FiltroTienda, tiendas: Tienda[]):
 export interface Corte {
   id: string;
   tiendaNombre: string;
-  usuarioId: string;
+  usuarioNombre: string;
   apertura: string;
   cierre: string;
   fondoInicial: number;
@@ -267,36 +206,43 @@ export interface Corte {
   deposito: number;
 }
 
-export async function cargarCortes(tienda: FiltroTienda, rango: Rango): Promise<Corte[]> {
-  let q = getSupabase()
-    .from("turnos")
-    .select(
-      "id, usuario_id, fecha_apertura, fecha_cierre, fondo_inicial, ventas_efectivo, ventas_tarjeta, ventas_transferencia, efectivo_esperado, efectivo_contado, diferencia, deposito_caja_fuerte, tiendas(nombre)",
-    )
-    .eq("estado", "CERRADO")
-    .gte("fecha_cierre", rango.desde.toISOString())
-    .lt("fecha_cierre", rango.hasta.toISOString())
-    .order("fecha_cierre", { ascending: false });
-  if (tienda) q = q.eq("tienda_id", tienda);
-  const { data, error } = await q;
-  if (error) throw error;
+interface CorteBase {
+  id: Id;
+  usuario_nombre: string | null;
+  tienda_nombre: string | null;
+  fecha_apertura: string;
+  fecha_cierre: string;
+  fondo_inicial: number;
+  ventas_efectivo: number;
+  ventas_tarjeta: number;
+  ventas_transferencia: number;
+  efectivo_esperado: number;
+  efectivo_contado: number;
+  diferencia: number;
+  deposito_caja_fuerte: number;
+}
 
-  return (data ?? []).map((t) => {
-    const tiendaRel = Array.isArray(t.tiendas) ? t.tiendas[0] : t.tiendas;
-    return {
-      id: String(t.id),
-      tiendaNombre: (tiendaRel as { nombre?: string } | null)?.nombre ?? "—",
-      usuarioId: String(t.usuario_id),
-      apertura: t.fecha_apertura,
-      cierre: t.fecha_cierre,
-      fondoInicial: Number(t.fondo_inicial),
-      ventasEfectivo: Number(t.ventas_efectivo),
-      ventasTarjeta: Number(t.ventas_tarjeta),
-      ventasTransferencia: Number(t.ventas_transferencia),
-      efectivoEsperado: Number(t.efectivo_esperado),
-      efectivoContado: Number(t.efectivo_contado),
-      diferencia: Number(t.diferencia),
-      deposito: Number(t.deposito_caja_fuerte),
-    };
+/** panel_cortes trae el nombre del cajero sin exponer el resto de la tabla usuarios. */
+export async function cargarCortes(usuario: Usuario, tienda: FiltroTienda, rango: Rango): Promise<Corte[]> {
+  const filas = await rpcSeguro<CorteBase[]>("panel_cortes", {
+    p_token: usuario.token,
+    p_tienda_id: tienda,
+    p_desde: rango.desde.toISOString(),
+    p_hasta: rango.hasta.toISOString(),
   });
+  return (filas ?? []).map((t) => ({
+    id: String(t.id),
+    tiendaNombre: t.tienda_nombre ?? "—",
+    usuarioNombre: t.usuario_nombre ?? "Usuario dado de baja",
+    apertura: t.fecha_apertura,
+    cierre: t.fecha_cierre,
+    fondoInicial: Number(t.fondo_inicial),
+    ventasEfectivo: Number(t.ventas_efectivo),
+    ventasTarjeta: Number(t.ventas_tarjeta),
+    ventasTransferencia: Number(t.ventas_transferencia),
+    efectivoEsperado: Number(t.efectivo_esperado),
+    efectivoContado: Number(t.efectivo_contado),
+    diferencia: Number(t.diferencia),
+    deposito: Number(t.deposito_caja_fuerte),
+  }));
 }

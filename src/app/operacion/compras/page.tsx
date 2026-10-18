@@ -189,7 +189,7 @@ export default function ComprasPage() {
 
   const registrarPago = async (tipo: TipoMovimiento, monto: number, concepto: string) => {
     if (!usuario || !turno) throw new Error("No hay un turno abierto.");
-    await registrarMovimiento({ turnoId: turno.id, usuarioId: usuario.id, tipo, monto, concepto });
+    await registrarMovimiento({ turnoId: turno.id, usuario, tipo, monto, concepto });
     setPagando(false);
     setFase((f) => (f.tipo === "listo" ? { ...f, pagado: true } : f));
     setAviso(`Pago registrado en caja · ${formatMXN(monto)}`);

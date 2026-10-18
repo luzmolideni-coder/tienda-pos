@@ -90,16 +90,15 @@ export default function PanelDireccionPage() {
     return desde && hasta ? rangoPersonalizado(desde, hasta) : null;
   }, [periodo, desde, hasta]);
 
-  const consultaKpis = useMemo(() => (rango ? () => cargarKpis(tienda, rango) : null), [tienda, rango]);
-  const consultaCortes = useMemo(() => (rango ? () => cargarCortes(tienda, rango) : null), [tienda, rango]);
-  const consultaInventario = useMemo(() => (tiendas ? () => cargarInventario(tienda, tiendas) : null), [tienda, tiendas]);
+  const consultaKpis = useMemo(() => (usuario && rango ? () => cargarKpis(usuario, tienda, rango) : null), [usuario, tienda, rango]);
+  const consultaCortes = useMemo(() => (usuario && rango ? () => cargarCortes(usuario, tienda, rango) : null), [usuario, tienda, rango]);
+  const consultaInventario = useMemo(() => (usuario ? () => cargarInventario(usuario, tienda) : null), [usuario, tienda]);
 
   const kpis = useConsulta(consultaKpis);
   const cortes = useConsulta(consultaCortes);
   const inventario = useConsulta(consultaInventario);
 
   const variasTiendas = tienda === null && (tiendas?.length ?? 0) > 1;
-  const nombres = useMemo(() => new Map(usuario ? [[String(usuario.id), usuario.nombre]] : []), [usuario]);
   const descripcionRango = rango
     ? `${fechaCorta.format(rango.desde)} – ${fechaCorta.format(new Date(rango.hasta.getTime() - 1))}`
     : "Elige ambas fechas";
@@ -161,7 +160,7 @@ export default function PanelDireccionPage() {
           error={cortes.error}
           onReintentar={cortes.recargar}
         >
-          {cortes.datos && <HistorialCortes cortes={cortes.datos} variasTiendas={variasTiendas} nombres={nombres} />}
+          {cortes.datos && <HistorialCortes cortes={cortes.datos} variasTiendas={variasTiendas} />}
         </Seccion>
       </div>
     </>

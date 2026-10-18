@@ -1,7 +1,7 @@
 import { getSupabase } from "@/lib/supabase/client";
-import { calcularCifras, type Arqueo, type CifrasTurno } from "@/lib/corte";
+import { rpcSeguro } from "@/lib/supabase/rpc";
+import type { Arqueo, CifrasTurno } from "@/lib/corte";
 import { redondear } from "@/lib/format";
-import { generarUuid } from "@/lib/uuid";
 import type { Id, ItemCarrito, MetodoPago, Producto, TipoMovimiento, Turno, Usuario } from "@/types/pos";
 
 export async function cargarProductosActivos(): Promise<Producto[]> {
@@ -21,56 +21,32 @@ export async function cargarProductosActivos(): Promise<Producto[]> {
   }));
 }
 
-/** Valida el PIN en el servidor (función login_con_pin); los PINs nunca llegan al navegador. */
+/**
+ * Valida el PIN en la base (iniciar_sesion_pos) y recibe un token de sesión. Todas las demás
+ * operaciones mandan ese token: la base sabe quién es el usuario y su rol sin confiar en el navegador.
+ */
 export async function buscarUsuarioPorPin(pin: string): Promise<Usuario | null> {
-  const { data, error } = await getSupabase().rpc("login_con_pin", { p_pin: pin });
-  if (error) throw error;
-  // La función devuelve un conjunto de filas: vacío si el PIN no existe.
-  const filas = (Array.isArray(data) ? data : data ? [data] : []) as Usuario[];
-  return filas[0] ?? null;
+  return rpcSeguro<Usuario | null>("iniciar_sesion_pos", { p_pin: pin });
 }
 
-const COLUMNAS_TURNO = "id, usuario_id, tienda_id, fondo_inicial, fecha_apertura";
+export async function cerrarSesionEnBase(token: string): Promise<void> {
+  await rpcSeguro("cerrar_sesion_pos", { p_token: token });
+}
 
 function normalizarTurno(t: Turno): Turno {
   return { ...t, fondo_inicial: Number(t.fondo_inicial) };
 }
 
-/**
- * Turno ABIERTO del usuario o de su tienda. Si hay varios, prefiere el del propio usuario
- * y luego el más reciente.
- */
+/** Turno ABIERTO del usuario o de su tienda (la base prefiere el propio y el más reciente). */
 export async function buscarTurnoAbierto(usuario: Usuario): Promise<Turno | null> {
-  const filtro = usuario.tienda_id
-    ? `usuario_id.eq.${usuario.id},tienda_id.eq.${usuario.tienda_id}`
-    : `usuario_id.eq.${usuario.id}`;
-  const { data, error } = await getSupabase()
-    .from("turnos")
-    .select(COLUMNAS_TURNO)
-    .eq("estado", "ABIERTO")
-    .or(filtro)
-    .order("fecha_apertura", { ascending: false })
-    .limit(10);
-  if (error) throw error;
-  const turnos = (data ?? []) as Turno[];
-  const elegido = turnos.find((t) => t.usuario_id === usuario.id) ?? turnos[0];
-  return elegido ? normalizarTurno(elegido) : null;
+  const t = await rpcSeguro<Turno | null>("pos_turno_abierto", { p_token: usuario.token });
+  return t ? normalizarTurno(t) : null;
 }
 
+/** Abre turno; si ya había uno abierto para el usuario o su tienda, la base devuelve ese. */
 export async function abrirTurno(usuario: Usuario, fondoInicial: number): Promise<Turno> {
-  // El id se genera aquí para no depender de leer la fila de vuelta (RLS puede no permitir SELECT).
-  const turno: Turno = {
-    id: generarUuid(),
-    usuario_id: usuario.id,
-    tienda_id: usuario.tienda_id,
-    fondo_inicial: redondear(fondoInicial),
-    fecha_apertura: new Date().toISOString(),
-  };
-  const { error } = await getSupabase()
-    .from("turnos")
-    .insert({ ...turno, estado: "ABIERTO" });
-  if (error) throw error;
-  return turno;
+  const t = await rpcSeguro<Turno>("pos_abrir_turno", { p_token: usuario.token, p_fondo_inicial: redondear(fondoInicial) });
+  return normalizarTurno(t);
 }
 
 interface NuevaVenta {
@@ -84,11 +60,10 @@ interface NuevaVenta {
 }
 
 /**
- * Guarda la venta y sus partidas con la función registrar_venta de Supabase, en una sola
- * transacción: si cualquier partida falla, no queda ninguna venta a medias.
- * Devuelve lo que regrese la función (normalmente el id de la venta).
+ * Guarda la venta y sus partidas en una sola transacción (pos_registrar_venta → registrar_venta).
+ * Usuario y tienda los pone la base a partir del token.
  */
-export async function registrarVenta({ usuario, turnoId, items, total, metodo, pagaCon }: NuevaVenta): Promise<unknown> {
+export async function registrarVenta({ usuario, turnoId, items, total, metodo, pagaCon }: NuevaVenta): Promise<void> {
   const partidas = items.map(({ producto, cantidad }) => ({
     producto_id: producto.id,
     cantidad,
@@ -97,9 +72,8 @@ export async function registrarVenta({ usuario, turnoId, items, total, metodo, p
     subtotal: redondear(producto.precio_venta * cantidad),
   }));
 
-  const { data, error } = await getSupabase().rpc("registrar_venta", {
-    p_tienda_id: usuario.tienda_id,
-    p_usuario_id: usuario.id,
+  await rpcSeguro("pos_registrar_venta", {
+    p_token: usuario.token,
     p_turno_id: turnoId,
     p_total: total,
     p_paga_con: pagaCon,
@@ -107,81 +81,79 @@ export async function registrarVenta({ usuario, turnoId, items, total, metodo, p
     p_metodo_pago: metodo,
     p_items: partidas,
   });
-  if (error) throw error;
-  return data;
 }
 
 interface NuevoMovimiento {
+  usuario: Usuario;
   turnoId: Id;
-  usuarioId: Id;
   tipo: TipoMovimiento;
   monto: number;
   concepto: string;
 }
 
-export async function registrarMovimiento({ turnoId, usuarioId, tipo, monto, concepto }: NuevoMovimiento): Promise<void> {
-  const { error } = await getSupabase()
-    .from("movimientos_caja")
-    .insert({ id: generarUuid(), turno_id: turnoId, usuario_id: usuarioId, tipo, monto: redondear(monto), concepto });
-  if (error) throw error;
+export async function registrarMovimiento({ usuario, turnoId, tipo, monto, concepto }: NuevoMovimiento): Promise<void> {
+  await rpcSeguro("pos_registrar_movimiento", {
+    p_token: usuario.token,
+    p_turno_id: turnoId,
+    p_tipo: tipo,
+    p_monto: redondear(monto),
+    p_concepto: concepto,
+  });
 }
 
-/** Suma ventas y movimientos del turno para el corte. */
-export async function cargarCifrasTurno(turno: Turno): Promise<CifrasTurno> {
-  const supabase = getSupabase();
-  const [ventas, movimientos] = await Promise.all([
-    supabase.from("ventas").select("metodo_pago, total").eq("turno_id", turno.id),
-    supabase.from("movimientos_caja").select("tipo, monto").eq("turno_id", turno.id),
-  ]);
-  if (ventas.error) throw ventas.error;
-  if (movimientos.error) throw movimientos.error;
-  return calcularCifras(
-    turno.fondo_inicial,
-    (ventas.data ?? []).map((v) => ({ metodo_pago: String(v.metodo_pago), total: Number(v.total) })),
-    (movimientos.data ?? []).map((m) => ({ tipo: String(m.tipo), monto: Number(m.monto) })),
-  );
+interface CifrasBase {
+  fondo_inicial: number;
+  num_ventas: number;
+  ventas_efectivo: number;
+  ventas_tarjeta: number;
+  ventas_transferencia: number;
+  entradas: number;
+  pagos_proveedores: number;
+  gastos: number;
+  efectivo_esperado: number;
 }
 
-/** Cierra el turno guardando las cifras del corte. Devuelve la fecha de cierre registrada. */
-export async function cerrarTurno(turnoId: Id, cifras: CifrasTurno, arqueo: Arqueo): Promise<Date> {
-  const cierre = new Date();
-  const { data, error } = await getSupabase()
-    .from("turnos")
-    .update({
-      estado: "CERRADO",
-      fecha_cierre: cierre.toISOString(),
-      ventas_efectivo: cifras.ventasEfectivo,
-      ventas_tarjeta: cifras.ventasTarjeta,
-      ventas_transferencia: cifras.ventasTransferencia,
-      efectivo_esperado: cifras.efectivoEsperado,
-      efectivo_contado: arqueo.efectivoContado,
-      diferencia: arqueo.diferencia,
-      deposito_caja_fuerte: arqueo.deposito,
-    })
-    .eq("id", turnoId)
-    .eq("estado", "ABIERTO")
-    .select("id");
-  if (error) throw error;
-  // Con RLS un UPDATE sin permiso no da error: simplemente no toca filas.
-  if (!data?.length) throw new Error("El turno no se actualizó: ya estaba cerrado o no hay permiso para cerrarlo.");
-  return cierre;
+function cifrasDesdeBase(c: CifrasBase): CifrasTurno {
+  return {
+    fondoInicial: Number(c.fondo_inicial),
+    numVentas: Number(c.num_ventas),
+    ventasEfectivo: Number(c.ventas_efectivo),
+    ventasTarjeta: Number(c.ventas_tarjeta),
+    ventasTransferencia: Number(c.ventas_transferencia),
+    entradas: Number(c.entradas),
+    pagosProveedores: Number(c.pagos_proveedores),
+    gastos: Number(c.gastos),
+    efectivoEsperado: Number(c.efectivo_esperado),
+  };
 }
+
+/** Cifras en vivo del turno para el corte completo. Solo ADMIN: la base rechaza a los demás. */
+export async function cargarCifrasTurno(usuario: Usuario, turno: Turno): Promise<CifrasTurno> {
+  return cifrasDesdeBase(await rpcSeguro<CifrasBase>("pos_cifras_turno", { p_token: usuario.token, p_turno_id: turno.id }));
+}
+
+export type ResultadoCierre =
+  | { tipo: "completo"; cifras: CifrasTurno; arqueo: Arqueo; cierre: Date }
+  | { tipo: "ciego"; efectivoContado: number; cierre: Date };
 
 /**
- * Corte ciego: solo envía el efectivo contado. Esperado, diferencia y depósito los calcula y guarda
- * la función cerrar_turno_ciego en Postgres (supabase/cerrar_turno_ciego.sql) sin devolverlos.
+ * Cierra el turno: la base calcula esperado, diferencia y depósito y los guarda. A ADMIN le
+ * devuelve todo; a los demás (corte ciego) solo lo que reportaron y la hora de cierre.
  */
-export async function cerrarTurnoCiego(turnoId: Id, efectivoContado: number): Promise<Date> {
-  const { data, error } = await getSupabase().rpc("cerrar_turno_ciego", {
-    p_turno_id: turnoId,
-    p_efectivo_contado: redondear(efectivoContado),
-  });
-  if (error) {
-    if (error.code === "PGRST202") {
-      throw new Error("Falta la función cerrar_turno_ciego en Supabase. Avisa al administrador.");
-    }
-    throw error;
+export async function cerrarTurno(usuario: Usuario, turnoId: Id, efectivoContado: number): Promise<ResultadoCierre> {
+  const r = await rpcSeguro<CifrasBase & { efectivo_contado: number; diferencia?: number; deposito?: number; fecha_cierre: string }>(
+    "pos_cerrar_turno",
+    { p_token: usuario.token, p_turno_id: turnoId, p_efectivo_contado: redondear(efectivoContado) },
+  );
+  const fecha = new Date(r.fecha_cierre);
+  const cierre = Number.isNaN(fecha.getTime()) ? new Date() : fecha;
+  if (r.diferencia === undefined || r.deposito === undefined) {
+    return { tipo: "ciego", efectivoContado: Number(r.efectivo_contado), cierre };
   }
-  const fecha = data && typeof data === "object" && "fecha_cierre" in data ? new Date(String(data.fecha_cierre)) : null;
-  return fecha && !Number.isNaN(fecha.getTime()) ? fecha : new Date();
+  return {
+    tipo: "completo",
+    cifras: cifrasDesdeBase(r),
+    arqueo: { efectivoContado: Number(r.efectivo_contado), diferencia: Number(r.diferencia), deposito: Number(r.deposito) },
+    cierre,
+  };
 }

@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { cerrarSesionEnBase } from "@/lib/datos";
+import { EVENTO_SESION_INVALIDA } from "@/lib/supabase/rpc";
 import type { Turno, Usuario } from "@/types/pos";
 
 const STORAGE_KEY = "pos.usuario";
@@ -25,7 +27,9 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 function leerUsuario(): Usuario | null {
   try {
     const guardado = localStorage.getItem(STORAGE_KEY);
-    return guardado ? (JSON.parse(guardado) as Usuario) : null;
+    const usuario = guardado ? (JSON.parse(guardado) as Usuario) : null;
+    // Sesiones guardadas antes de los tokens no sirven: hay que volver a entrar con PIN.
+    return usuario?.token ? usuario : null;
   } catch {
     return null;
   }
@@ -51,11 +55,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const cerrarSesion = useCallback(() => {
+    // Invalida el token en la base; si falla (sin red) igual expira solo.
+    const token = leerUsuario()?.token;
+    if (token) cerrarSesionEnBase(token).catch(() => {});
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
     setUsuario(null);
     setTurno(null);
+  }, []);
+
+  // La base rechazó el token (expiró o se cerró en otro lado): se sale y useRequiereSesion manda al PIN.
+  useEffect(() => {
+    const alInvalidar = () => {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
+      setUsuario(null);
+      setTurno(null);
+    };
+    window.addEventListener(EVENTO_SESION_INVALIDA, alInvalidar);
+    return () => window.removeEventListener(EVENTO_SESION_INVALIDA, alInvalidar);
   }, []);
 
   return (

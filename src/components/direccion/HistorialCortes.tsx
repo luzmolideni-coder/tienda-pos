@@ -8,16 +8,13 @@ const fechaHora = new Intl.DateTimeFormat("es-MX", { dateStyle: "short", timeSty
 interface HistorialCortesProps {
   cortes: Corte[];
   variasTiendas: boolean;
-  /** Nombre a mostrar por usuario_id; los que falten se muestran abreviados. */
-  nombres: Map<string, string>;
 }
 
-export function HistorialCortes({ cortes, variasTiendas, nombres }: HistorialCortesProps) {
+export function HistorialCortes({ cortes, variasTiendas }: HistorialCortesProps) {
   if (cortes.length === 0) return <p className="py-8 text-center text-slate-500">No hay turnos cerrados en este periodo.</p>;
 
   const faltantes = cortes.filter((c) => c.diferencia < 0);
   const totalFaltante = faltantes.reduce((s, c) => s + c.diferencia, 0);
-  const sinNombre = cortes.some((c) => !nombres.has(c.usuarioId));
   const celda = "py-3 pr-4 text-right tabular-nums";
 
   return (
@@ -48,7 +45,7 @@ export function HistorialCortes({ cortes, variasTiendas, nombres }: HistorialCor
               <tr key={c.id} className={c.diferencia < 0 ? "bg-red-50/60 dark:bg-red-950/40" : ""}>
                 <td className="py-3 pr-4 whitespace-nowrap">{fechaHora.format(new Date(c.cierre))}</td>
                 {variasTiendas && <td className="py-3 pr-4">{c.tiendaNombre}</td>}
-                <td className="py-3 pr-4">{nombres.get(c.usuarioId) ?? `Usuario ${c.usuarioId.slice(0, 8)}`}</td>
+                <td className="py-3 pr-4">{c.usuarioNombre}</td>
                 <td className={celda}>{formatMXN(c.fondoInicial)}</td>
                 <td className={celda}>{formatMXN(c.ventasEfectivo)}</td>
                 <td className={celda}>{formatMXN(c.ventasTarjeta)}</td>
@@ -68,11 +65,6 @@ export function HistorialCortes({ cortes, variasTiendas, nombres }: HistorialCor
           </tbody>
         </table>
       </div>
-      {sinNombre && (
-        <p className="text-sm text-slate-500">
-          Algunos nombres se muestran abreviados porque la tabla de usuarios no es legible con la clave de la app.
-        </p>
-      )}
     </div>
   );
 }

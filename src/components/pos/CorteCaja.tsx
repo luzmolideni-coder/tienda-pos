@@ -4,7 +4,8 @@ import { CheckCircle2, Download, Loader2, LogOut, Printer, RefreshCw, X } from "
 import { useCallback, useEffect, useState } from "react";
 import { aplicarTecla, montoDeTexto, TecladoMonto, type Tecla } from "@/components/pos/TecladoMonto";
 import { calcularArqueo, textoComprobante, textoComprobanteEntrega, type CifrasTurno } from "@/lib/corte";
-import { cargarCifrasTurno, cerrarTurno, cerrarTurnoCiego } from "@/lib/datos";
+import { useSession } from "@/components/session/SessionProvider";
+import { cargarCifrasTurno, cerrarTurno } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
 import type { Turno } from "@/types/pos";
 
@@ -44,16 +45,18 @@ export function CorteCaja({ turno, cajero, ciego, onCancelar, onTerminar }: Cort
   const [confirmando, setConfirmando] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [errorCierre, setErrorCierre] = useState<string | null>(null);
+  const { usuario } = useSession();
 
   const cargar = useCallback(async () => {
+    if (!usuario) return;
     setFase({ tipo: "cargando" });
     try {
-      setFase({ tipo: "arqueo", cifras: await cargarCifrasTurno(turno) });
+      setFase({ tipo: "arqueo", cifras: await cargarCifrasTurno(usuario, turno) });
     } catch (e) {
       console.error(e);
       setFase({ tipo: "error", mensaje: `No se pudieron calcular las cifras del turno. ${mensajeDe(e)}`.trim() });
     }
-  }, [turno]);
+  }, [usuario, turno]);
 
   useEffect(() => {
     if (!ciego) cargar();
@@ -69,7 +72,7 @@ export function CorteCaja({ turno, cajero, ciego, onCancelar, onTerminar }: Cort
   const arqueo = cifras ? calcularArqueo(cifras, montoDeTexto(contadoTexto)) : null;
 
   const cerrar = async () => {
-    if (!capturado || cerrando || (!ciego && (!cifras || !arqueo))) return;
+    if (!usuario || !capturado || cerrando || (!ciego && (!cifras || !arqueo))) return;
     if (!confirmando) {
       setConfirmando(true);
       return;
@@ -78,14 +81,15 @@ export function CorteCaja({ turno, cajero, ciego, onCancelar, onTerminar }: Cort
     setErrorCierre(null);
     const apertura = new Date(turno.fecha_apertura);
     try {
-      if (ciego) {
-        const efectivoContado = montoDeTexto(contadoTexto);
-        const cierre = await cerrarTurnoCiego(turno.id, efectivoContado);
-        setFase({ tipo: "resumen", comprobante: textoComprobanteEntrega({ efectivoContado, cajero, apertura, cierre }) });
-      } else if (cifras && arqueo) {
-        const cierre = await cerrarTurno(turno.id, cifras, arqueo);
-        setFase({ tipo: "resumen", comprobante: textoComprobante({ cifras, arqueo, cajero, apertura, cierre }) });
-      }
+      // La base recalcula todo al cerrar; el comprobante usa sus cifras, no las de la pantalla.
+      const r = await cerrarTurno(usuario, turno.id, montoDeTexto(contadoTexto));
+      setFase({
+        tipo: "resumen",
+        comprobante:
+          r.tipo === "completo"
+            ? textoComprobante({ cifras: r.cifras, arqueo: r.arqueo, cajero, apertura, cierre: r.cierre })
+            : textoComprobanteEntrega({ efectivoContado: r.efectivoContado, cajero, apertura, cierre: r.cierre }),
+      });
     } catch (e) {
       console.error(e);
       setErrorCierre(`No se pudo cerrar el turno. ${mensajeDe(e)}`.trim());

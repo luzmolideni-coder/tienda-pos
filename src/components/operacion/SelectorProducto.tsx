@@ -15,7 +15,7 @@ interface SelectorProductoProps {
 }
 
 function normalizar(texto: string): string {
-  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 export function SelectorProducto({ productos, proveedorId, yaAgregados, onElegir, onCerrar }: SelectorProductoProps) {

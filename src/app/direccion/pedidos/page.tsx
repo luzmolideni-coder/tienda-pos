@@ -82,8 +82,8 @@ export default function AprobacionPedidosPage() {
       // Se mandan todas las partidas con su cantidad final (ajustada o no): así el resultado
       // no depende de si la función trata como 0 o como "sin cambio" a las que falten.
       await aprobarPedido(
+        usuario,
         pedido.id,
-        usuario.id,
         lineas.map((l) => ({ productoId: l.productoId, cantidad: l.final })),
       );
       setAviso(`Pedido de ${pedido.proveedorNombre} aprobado · ${piezas} piezas`);
@@ -97,7 +97,7 @@ export default function AprobacionPedidosPage() {
   };
 
   const rechazar = async () => {
-    if (!pedido || accion) return;
+    if (!usuario || !pedido || accion) return;
     if (!confirmarRechazo) {
       setConfirmarRechazo(true);
       return;
@@ -105,7 +105,7 @@ export default function AprobacionPedidosPage() {
     setAccion("rechazando");
     setError(null);
     try {
-      await rechazarPedido(pedido.id);
+      await rechazarPedido(usuario, pedido.id);
       setAviso(`Pedido de ${pedido.proveedorNombre} rechazado`);
       quitarDeLista(String(pedido.id));
     } catch (e) {

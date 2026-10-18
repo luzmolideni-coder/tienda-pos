@@ -16,42 +16,8 @@ export interface CifrasTurno {
   entradas: number;
   pagosProveedores: number;
   gastos: number;
-  /** Fondo + ventas en efectivo + entradas − pagos − gastos. */
+  /** Fondo + ventas en efectivo + entradas − pagos − gastos (lo calcula la base). */
   efectivoEsperado: number;
-}
-
-interface VentaResumen {
-  metodo_pago: string;
-  total: number;
-}
-
-interface MovimientoResumen {
-  tipo: string;
-  monto: number;
-}
-
-export function calcularCifras(fondoInicial: number, ventas: VentaResumen[], movimientos: MovimientoResumen[]): CifrasTurno {
-  const sumaVentas = (metodo: string) =>
-    redondear(ventas.filter((v) => v.metodo_pago.toLowerCase() === metodo).reduce((s, v) => s + v.total, 0));
-  const sumaMovimientos = (tipo: TipoMovimiento) =>
-    redondear(movimientos.filter((m) => m.tipo.toUpperCase() === tipo).reduce((s, m) => s + m.monto, 0));
-
-  const ventasEfectivo = sumaVentas("efectivo");
-  const entradas = sumaMovimientos("ENTRADA");
-  const pagosProveedores = sumaMovimientos("PAGO_PROVEEDOR");
-  const gastos = sumaMovimientos("GASTO");
-
-  return {
-    fondoInicial,
-    numVentas: ventas.length,
-    ventasEfectivo,
-    ventasTarjeta: sumaVentas("tarjeta"),
-    ventasTransferencia: sumaVentas("transferencia"),
-    entradas,
-    pagosProveedores,
-    gastos,
-    efectivoEsperado: redondear(fondoInicial + ventasEfectivo + entradas - pagosProveedores - gastos),
-  };
 }
 
 export interface Arqueo {

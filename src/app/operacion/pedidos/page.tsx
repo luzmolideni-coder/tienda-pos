@@ -13,7 +13,7 @@ import type { Producto, Proveedor } from "@/types/pos";
 type Cantidades = Record<string, number>;
 
 function normalizar(texto: string): string {
-  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 export default function PedidosPage() {

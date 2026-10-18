@@ -6,6 +6,8 @@ export interface Usuario {
   nombre: string;
   rol: string;
   tienda_id: Id | null;
+  /** Token de sesión que emite la base al validar el PIN (iniciar_sesion_pos). */
+  token: string;
 }
 
 export interface Producto {

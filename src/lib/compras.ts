@@ -1,5 +1,6 @@
 import { redondear } from "@/lib/format";
 import { getSupabase } from "@/lib/supabase/client";
+import { rpcSeguro } from "@/lib/supabase/rpc";
 import type { Id, Proveedor, Usuario } from "@/types/pos";
 
 export async function cargarProveedores(): Promise<Proveedor[]> {
@@ -16,7 +17,7 @@ const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "
 
 /** true si el proveedor visita hoy (compara sin acentos ni mayúsculas). */
 export function visitaHoy(proveedor: Proveedor, hoy = new Date()): boolean {
-  const limpio = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const limpio = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const dia = limpio(DIAS[hoy.getDay()]);
   return proveedor.dias_visita.some((d) => limpio(d) === dia);
 }
@@ -26,17 +27,14 @@ export interface PartidaPedido {
   cantidad: number;
 }
 
-/** Crea el pedido con estado SOLICITADO y sus partidas en una sola transacción (función crear_pedido). */
-export async function crearPedido(usuario: Usuario, proveedorId: Id, partidas: PartidaPedido[]): Promise<unknown> {
-  const { data, error } = await getSupabase().rpc("crear_pedido", {
-    p_tienda_id: usuario.tienda_id,
+/** Crea el pedido SOLICITADO en una transacción (pos_crear_pedido → crear_pedido); solicitante = sesión. */
+export async function crearPedido(usuario: Usuario, proveedorId: Id, partidas: PartidaPedido[]): Promise<void> {
+  await rpcSeguro("pos_crear_pedido", {
+    p_token: usuario.token,
     p_proveedor_id: proveedorId,
-    p_solicitado_por: usuario.id,
     // Se mandan ambos nombres de cantidad porque son los que usan pedido_items y las demás funciones.
     p_items: partidas.map((p) => ({ producto_id: p.productoId, cantidad_solicitada: p.cantidad, cantidad: p.cantidad })),
   });
-  if (error) throw error;
-  return data;
 }
 
 export interface PartidaDePedido extends PartidaPedido {
@@ -79,34 +77,21 @@ export async function cargarPedidos(estado: "SOLICITADO" | "APROBADO", tiendaId:
   });
 }
 
-/** Con RLS un UPDATE sin permiso no falla: devuelve 0 filas. Se pide el id para detectarlo. */
-async function actualizarPedido(pedidoId: Id, cambios: Record<string, unknown>): Promise<void> {
-  const { data, error } = await getSupabase()
-    .from("pedidos")
-    .update(cambios)
-    .eq("id", pedidoId)
-    .eq("estado", "SOLICITADO")
-    .select("id");
-  if (error) throw error;
-  if (!data?.length) throw new Error("El pedido ya no está SOLICITADO o no hay permiso para cambiarlo.");
-}
-
 /**
- * Aprueba el pedido en una sola transacción (función aprobar_pedido): guarda las cantidades
- * aprobadas y lo pasa a APROBADO para que Compras lo cargue. Una cantidad en 0 deja la partida
- * en 0 y Compras la ignora.
+ * Aprueba el pedido en una transacción (pos_aprobar_pedido → aprobar_pedido): guarda las cantidades
+ * aprobadas y lo pasa a APROBADO. Solo ADMIN; quien aprueba lo toma la base de la sesión.
+ * Una cantidad en 0 deja la partida en 0 y Compras la ignora.
  */
-export async function aprobarPedido(pedidoId: Id, aprobadoPor: Id, partidas: PartidaPedido[]): Promise<void> {
-  const { error } = await getSupabase().rpc("aprobar_pedido", {
+export async function aprobarPedido(usuario: Usuario, pedidoId: Id, partidas: PartidaPedido[]): Promise<void> {
+  await rpcSeguro("pos_aprobar_pedido", {
+    p_token: usuario.token,
     p_pedido_id: pedidoId,
-    p_aprobado_por: aprobadoPor,
     p_items: partidas.map((p) => ({ producto_id: p.productoId, cantidad_aprobada: p.cantidad })),
   });
-  if (error) throw error;
 }
 
-export async function rechazarPedido(pedidoId: Id): Promise<void> {
-  await actualizarPedido(pedidoId, { estado: "RECHAZADO" });
+export async function rechazarPedido(usuario: Usuario, pedidoId: Id): Promise<void> {
+  await rpcSeguro("pos_rechazar_pedido", { p_token: usuario.token, p_pedido_id: pedidoId });
 }
 
 export interface PartidaRecepcion {
@@ -127,14 +112,14 @@ interface NuevaRecepcion {
 }
 
 /**
- * procesar_recepcion_compra hace todo en una transacción: registra la recepción, suma existencias,
- * actualiza costo y precio (redondeo a $0.50, respetando precio fijo) y escribe historial_costos.
+ * pos_procesar_recepcion → procesar_recepcion_compra hace todo en una transacción: registra la
+ * recepción, suma existencias, actualiza costo y precio (redondeo a $0.50, respetando precio fijo)
+ * y escribe historial_costos. Usuario y tienda los pone la base a partir del token.
  */
 export async function procesarRecepcion({ usuario, proveedorId, pedidoId, partidas }: NuevaRecepcion): Promise<number> {
   const total = totalRecepcion(partidas);
-  const { error } = await getSupabase().rpc("procesar_recepcion_compra", {
-    p_tienda_id: usuario.tienda_id,
-    p_usuario_id: usuario.id,
+  await rpcSeguro("pos_procesar_recepcion", {
+    p_token: usuario.token,
     p_proveedor_id: proveedorId,
     p_pedido_id: pedidoId,
     p_total_ticket: total,
@@ -144,6 +129,5 @@ export async function procesarRecepcion({ usuario, proveedorId, pedidoId, partid
       costo_unitario_neto: redondear(p.costoUnitarioNeto),
     })),
   });
-  if (error) throw error;
   return total;
 }

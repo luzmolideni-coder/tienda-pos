@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PinPad } from "@/components/login/PinPad";
 import { useSession } from "@/components/session/SessionProvider";
 import { buscarUsuarioPorPin } from "@/lib/datos";
+import { ErrorPos } from "@/lib/supabase/rpc";
 
 const LARGO_MAXIMO_PIN = 6;
 
@@ -46,7 +47,7 @@ export default function LoginPage() {
       }
     } catch (e) {
       console.error(e);
-      setError("No se pudo conectar. Revisa tu conexión.");
+      setError(e instanceof ErrorPos ? e.message : "No se pudo conectar. Revisa tu conexión.");
     } finally {
       setValidando(false);
     }
