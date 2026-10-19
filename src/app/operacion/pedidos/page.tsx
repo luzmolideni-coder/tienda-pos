@@ -1,11 +1,11 @@
 "use client";
 
-import { CalendarCheck, Loader2, PackageSearch, RefreshCw, Search, Send } from "lucide-react";
+import { BellRing, CalendarDays, Loader2, PackageSearch, RefreshCw, Search, Send, Truck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Aviso } from "@/components/comun/Aviso";
 import { ControlCantidad } from "@/components/operacion/ControlCantidad";
 import { useSession } from "@/components/session/SessionProvider";
-import { cargarProveedores, crearPedido, visitaHoy } from "@/lib/compras";
+import { cargarProveedores, crearPedido, primeroLosDeHoy, tocaPedirHoy } from "@/lib/compras";
 import { cargarProductosActivos } from "@/lib/datos";
 import { formatMXN } from "@/lib/format";
 import type { Producto, Proveedor } from "@/types/pos";
@@ -37,9 +37,11 @@ export default function PedidosPage() {
     setErrorCarga(null);
     try {
       const [provs, prods] = await Promise.all([cargarProveedores(), cargarProductosActivos()]);
-      setProveedores(provs);
+      // A los que toca pedir hoy se les pone arriba y el primero queda seleccionado.
+      const ordenados = primeroLosDeHoy(provs, (p) => tocaPedirHoy(p));
+      setProveedores(ordenados);
       setProductos(prods);
-      setProveedorId((actual) => actual ?? (provs.find((p) => visitaHoy(p)) ?? provs[0])?.id.toString() ?? null);
+      setProveedorId((actual) => actual ?? ordenados[0]?.id.toString() ?? null);
     } catch (e) {
       console.error(e);
       setErrorCarga("No se pudieron cargar proveedores y productos.");
@@ -126,11 +128,17 @@ export default function PedidosPage() {
     );
   }
 
+  const pedirHoy = proveedores.filter((p) => tocaPedirHoy(p)).length;
+
   return (
     <>
       <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-slate-800 dark:bg-slate-900">
         <h1 className="text-2xl font-semibold">Pedido a proveedor</h1>
-        <p className="text-slate-500">Elige el proveedor y captura las piezas que necesitas.</p>
+        <p className="text-slate-500">
+          {pedirHoy > 0
+            ? `Hoy toca pedir a ${pedirHoy} proveedor${pedirHoy === 1 ? "" : "es"} (marcados en amarillo).`
+            : "Hoy no toca pedir a ningún proveedor. Elige uno y captura las piezas que necesitas."}
+        </p>
       </header>
 
       <div className="flex min-h-0 flex-1">
@@ -138,6 +146,7 @@ export default function PedidosPage() {
           {proveedores.map((p) => {
             const activo = String(p.id) === proveedorId;
             const capturadas = Object.values(porProveedor[String(p.id)] ?? {}).filter((n) => n > 0).length;
+            const pideHoy = tocaPedirHoy(p);
             return (
               <button
                 key={p.id}
@@ -151,7 +160,9 @@ export default function PedidosPage() {
                 className={`pressable w-full rounded-2xl p-4 text-left ring-2 ${
                   activo
                     ? "bg-emerald-50 ring-emerald-600 dark:bg-emerald-950"
-                    : "bg-slate-50 ring-transparent dark:bg-slate-800"
+                    : pideHoy
+                      ? "bg-amber-50 ring-amber-400 dark:bg-amber-950/60 dark:ring-amber-600"
+                      : "bg-slate-50 ring-transparent dark:bg-slate-800"
                 }`}
               >
                 <span className="flex items-center justify-between gap-2">
@@ -160,12 +171,22 @@ export default function PedidosPage() {
                     <span className="rounded-full bg-emerald-600 px-2 text-sm font-semibold text-white">{capturadas}</span>
                   )}
                 </span>
+                {pideHoy && (
+                  <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-400 px-2.5 py-0.5 text-sm font-semibold text-amber-950">
+                    <BellRing className="size-4" aria-hidden />
+                    Toca pedir hoy
+                  </span>
+                )}
                 {p.dias_visita.length > 0 && (
-                  <span
-                    className={`mt-1 flex items-center gap-1 text-sm ${visitaHoy(p) ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-slate-500"}`}
-                  >
-                    <CalendarCheck className="size-4" aria-hidden />
-                    {visitaHoy(p) ? "Visita hoy" : p.dias_visita.join(", ")}
+                  <span className="mt-1 flex items-center gap-1 text-sm text-slate-500">
+                    <CalendarDays className="size-4 shrink-0" aria-hidden />
+                    Pide: {p.dias_visita.join(", ")}
+                  </span>
+                )}
+                {p.dias_entrega.length > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-slate-500">
+                    <Truck className="size-4 shrink-0" aria-hidden />
+                    Llega: {p.dias_entrega.join(", ")}
                   </span>
                 )}
               </button>

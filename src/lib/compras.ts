@@ -6,20 +6,42 @@ import type { Id, Proveedor, Usuario } from "@/types/pos";
 export async function cargarProveedores(): Promise<Proveedor[]> {
   const { data, error } = await getSupabase()
     .from("proveedores")
-    .select("id, nombre, dias_visita")
+    .select("id, nombre, dias_visita, dias_entrega")
     .eq("activo", true)
     .order("nombre");
   if (error) throw error;
-  return (data ?? []).map((p) => ({ ...p, dias_visita: Array.isArray(p.dias_visita) ? p.dias_visita : [] }));
+  return (data ?? []).map((p) => ({
+    ...p,
+    dias_visita: Array.isArray(p.dias_visita) ? p.dias_visita : [],
+    dias_entrega: Array.isArray(p.dias_entrega) ? p.dias_entrega : [],
+  }));
 }
 
 const DIAS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
-/** true si el proveedor visita hoy (compara sin acentos ni mayúsculas). */
-export function visitaHoy(proveedor: Proveedor, hoy = new Date()): boolean {
-  const limpio = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function limpio(t: string): string {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+/** true si hoy está en la lista de días (sin acentos ni mayúsculas: "miercoles" = "Miércoles"). */
+function esHoy(dias: string[], hoy: Date): boolean {
   const dia = limpio(DIAS[hoy.getDay()]);
-  return proveedor.dias_visita.some((d) => limpio(d) === dia);
+  return dias.some((d) => limpio(d) === dia);
+}
+
+/** Hoy toca hacerle el pedido (dias_visita). */
+export function tocaPedirHoy(proveedor: Proveedor, hoy = new Date()): boolean {
+  return esHoy(proveedor.dias_visita, hoy);
+}
+
+/** Hoy llega su mercancía (dias_entrega). */
+export function llegaHoy(proveedor: Proveedor, hoy = new Date()): boolean {
+  return esHoy(proveedor.dias_entrega, hoy);
+}
+
+/** Los que cumplen la condición primero; el resto conserva el orden alfabético. */
+export function primeroLosDeHoy(proveedores: Proveedor[], condicion: (p: Proveedor) => boolean): Proveedor[] {
+  return [...proveedores].sort((a, b) => Number(condicion(b)) - Number(condicion(a)));
 }
 
 export interface PartidaPedido {

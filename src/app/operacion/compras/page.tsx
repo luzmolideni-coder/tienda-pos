@@ -12,6 +12,7 @@ import {
   ReceiptText,
   RefreshCw,
   Trash2,
+  Truck,
   Wallet,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,7 +22,15 @@ import { ModalTeclado } from "@/components/operacion/ModalTeclado";
 import { SelectorProducto } from "@/components/operacion/SelectorProducto";
 import { ModalMovimiento } from "@/components/pos/ModalMovimiento";
 import { useSession } from "@/components/session/SessionProvider";
-import { cargarPedidos, cargarProveedores, procesarRecepcion, totalRecepcion, type Pedido } from "@/lib/compras";
+import {
+  cargarPedidos,
+  cargarProveedores,
+  llegaHoy,
+  primeroLosDeHoy,
+  procesarRecepcion,
+  totalRecepcion,
+  type Pedido,
+} from "@/lib/compras";
 import { buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento } from "@/lib/datos";
 import { formatMXN, redondear } from "@/lib/format";
 import type { Producto, Proveedor, TipoMovimiento } from "@/types/pos";
@@ -37,6 +46,15 @@ type Fase =
   | { tipo: "elegir-pedido" }
   | { tipo: "captura"; pedido: Pedido | null }
   | { tipo: "listo"; total: number; proveedor: string; piezas: number; productos: number; pagado: boolean };
+
+function EtiquetaLlegaHoy() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800 dark:bg-sky-900 dark:text-sky-100">
+      <Truck className="size-3.5" aria-hidden />
+      Llega hoy
+    </span>
+  );
+}
 
 const fecha = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" });
 
@@ -74,7 +92,8 @@ export default function ComprasPage() {
         cargarProductosActivos(),
         cargarPedidos("APROBADO", usuario.tienda_id),
       ]);
-      setProveedores(provs);
+      // Los que entregan hoy van primero en la lista de proveedores.
+      setProveedores(primeroLosDeHoy(provs, (p) => llegaHoy(p)));
       setProductos(prods);
       // Dirección puede dejar partidas en 0 al aprobar: no se recibe nada de ellas.
       setPedidos(peds.map((p) => ({ ...p, partidas: p.partidas.filter((x) => x.cantidad > 0) })));
@@ -90,6 +109,15 @@ export default function ComprasPage() {
     cargar();
   }, [cargar]);
 
+  const lleganHoy = useMemo(() => proveedores.filter((p) => llegaHoy(p)), [proveedores]);
+  const idsLleganHoy = useMemo(() => new Set(lleganHoy.map((p) => String(p.id))), [lleganHoy]);
+  // Pedidos aprobados de quien entrega hoy, primero.
+  const pedidosOrdenados = useMemo(
+    () => [...pedidos].sort((a, b) => Number(idsLleganHoy.has(String(b.proveedorId))) - Number(idsLleganHoy.has(String(a.proveedorId)))),
+    [pedidos, idsLleganHoy],
+  );
+  const pedidoAprobadoDe = (proveedorId: string) => pedidosOrdenados.find((p) => String(p.proveedorId) === proveedorId);
+
   const productoPorId = useMemo(() => new Map(productos.map((p) => [String(p.id), p])), [productos]);
   const proveedor = proveedores.find((p) => String(p.id) === proveedorId) ?? null;
   const conPiezas = filas.filter((f) => f.piezas > 0);
@@ -103,9 +131,9 @@ export default function ComprasPage() {
     setFilas((todas) => todas.map((f) => (f.productoId === productoId ? { ...f, ...cambios } : f)));
   };
 
-  const iniciarDirecta = () => {
+  const iniciarDirecta = (proveedorInicial?: string) => {
     setFilas([]);
-    setProveedorId(proveedores[0] ? String(proveedores[0].id) : null);
+    setProveedorId(proveedorInicial ?? (proveedores[0] ? String(proveedores[0].id) : null));
     setFase({ tipo: "captura", pedido: null });
   };
 
@@ -248,35 +276,62 @@ export default function ComprasPage() {
       </header>
 
       {fase.tipo === "inicio" && (
-        <div className="grid flex-1 grid-cols-2 content-center gap-6 p-8">
-          <button
-            type="button"
-            onClick={() => setFase({ tipo: "elegir-pedido" })}
-            className="pressable flex flex-col items-center gap-4 rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
-          >
-            <ClipboardCheck className="size-16 text-emerald-600" aria-hidden />
-            <span className="text-2xl font-semibold">Cargar desde pedido aprobado</span>
-            <span className="text-slate-500">
-              {pedidos.length === 0
-                ? "No hay pedidos aprobados"
-                : `${pedidos.length} pedido${pedidos.length === 1 ? "" : "s"} aprobado${pedidos.length === 1 ? "" : "s"}`}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={iniciarDirecta}
-            className="pressable flex flex-col items-center gap-4 rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
-          >
-            <ReceiptText className="size-16 text-sky-600" aria-hidden />
-            <span className="text-2xl font-semibold">Captura directa de ticket</span>
-            <span className="text-slate-500">Sin pedido previo</span>
-          </button>
+        <div className="flex flex-1 flex-col justify-center gap-6 overflow-y-auto p-8">
+          {lleganHoy.length > 0 && (
+            <section className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-200 dark:bg-sky-950/60 dark:ring-sky-800" aria-label="Llega hoy">
+              <p className="mb-3 flex items-center gap-2 text-lg font-semibold text-sky-900 dark:text-sky-100">
+                <Truck className="size-6" aria-hidden />
+                Llega hoy
+                <span className="text-base font-normal text-sky-800/80 dark:text-sky-200/80">· toca uno para recibir su mercancía</span>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {lleganHoy.map((p) => {
+                  const aprobado = pedidoAprobadoDe(String(p.id));
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => (aprobado ? iniciarDesdePedido(aprobado) : iniciarDirecta(String(p.id)))}
+                      className="touch-target pressable flex flex-col items-start justify-center rounded-2xl bg-white px-4 py-2 text-left font-semibold shadow-sm ring-1 ring-sky-200 dark:bg-slate-900 dark:ring-sky-800"
+                    >
+                      {p.nombre}
+                      <span className="text-sm font-normal text-slate-500">{aprobado ? "Con pedido aprobado" : "Captura directa"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+          <div className="grid grid-cols-2 gap-6">
+            <button
+              type="button"
+              onClick={() => setFase({ tipo: "elegir-pedido" })}
+              className="pressable flex flex-col items-center gap-4 rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+            >
+              <ClipboardCheck className="size-16 text-emerald-600" aria-hidden />
+              <span className="text-2xl font-semibold">Cargar desde pedido aprobado</span>
+              <span className="text-slate-500">
+                {pedidos.length === 0
+                  ? "No hay pedidos aprobados"
+                  : `${pedidos.length} pedido${pedidos.length === 1 ? "" : "s"} aprobado${pedidos.length === 1 ? "" : "s"}`}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => iniciarDirecta()}
+              className="pressable flex flex-col items-center gap-4 rounded-3xl bg-white p-10 text-center shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+            >
+              <ReceiptText className="size-16 text-sky-600" aria-hidden />
+              <span className="text-2xl font-semibold">Captura directa de ticket</span>
+              <span className="text-slate-500">Sin pedido previo</span>
+            </button>
+          </div>
         </div>
       )}
 
       {fase.tipo === "elegir-pedido" && (
         <ul className="flex-1 space-y-3 overflow-y-auto p-6">
-          {pedidos.map((p) => (
+          {pedidosOrdenados.map((p) => (
             <li key={p.id}>
               <button
                 type="button"
@@ -284,7 +339,10 @@ export default function ComprasPage() {
                 className="pressable flex w-full items-center justify-between gap-4 rounded-2xl bg-white p-5 text-left shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
               >
                 <span>
-                  <span className="block text-lg font-semibold">{p.proveedorNombre}</span>
+                  <span className="flex items-center gap-2 text-lg font-semibold">
+                    {p.proveedorNombre}
+                    {idsLleganHoy.has(String(p.proveedorId)) && <EtiquetaLlegaHoy />}
+                  </span>
                   <span className="text-slate-500">{fecha.format(new Date(p.creado))}</span>
                 </span>
                 <span className="text-right text-slate-600 dark:text-slate-300">
@@ -326,7 +384,10 @@ export default function ComprasPage() {
                       : "bg-slate-100 ring-transparent dark:bg-slate-800"
                   }`}
                 >
-                  {p.nombre}
+                  <span className="flex items-center gap-2">
+                    {p.nombre}
+                    {idsLleganHoy.has(String(p.id)) && <EtiquetaLlegaHoy />}
+                  </span>
                 </button>
               ))
             )}

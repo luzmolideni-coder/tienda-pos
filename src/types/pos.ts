@@ -26,7 +26,10 @@ export interface Producto {
 export interface Proveedor {
   id: Id;
   nombre: string;
+  /** Días en que se le hace el pedido. */
   dias_visita: string[];
+  /** Días en que llega su mercancía. */
+  dias_entrega: string[];
 }
 
 export interface ItemCarrito {
