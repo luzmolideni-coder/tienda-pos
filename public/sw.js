@@ -3,10 +3,10 @@
 // - Recursos estáticos (/_next/static, íconos): caché primero.
 // - Nunca cachea peticiones a Supabase ni métodos distintos de GET.
 
-const VERSION = "v1";
+const VERSION = "v2";
 const STATIC_CACHE = `pos-static-${VERSION}`;
 const PAGES_CACHE = `pos-pages-${VERSION}`;
-const PRECACHE = ["/", "/offline.html", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const PRECACHE = ["/", "/offline.html", "/manifest.json", "/icons/icon-192x192.png", "/icons/icon-512x512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)));

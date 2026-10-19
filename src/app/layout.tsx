@@ -18,6 +18,7 @@ export const metadata: Metadata = {
   title: "Tienda POS",
   description: "Punto de venta para tablets táctiles",
   applicationName: "Tienda POS",
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "Tienda POS",
@@ -25,7 +26,15 @@ export const metadata: Metadata = {
   },
   formatDetection: { telephone: false },
   icons: {
-    apple: "/icons/apple-touch-icon.png",
+    icon: [
+      { url: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
+  // Next 15 solo emite "mobile-web-app-capable"; iOS/iPadOS todavía lee la versión con prefijo apple-.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
   },
 };
 
