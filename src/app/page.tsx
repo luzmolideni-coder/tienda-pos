@@ -45,6 +45,7 @@ export default function CobroPage() {
   const [enCorte, setEnCorte] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
+  const [errorTurno, setErrorTurno] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -88,6 +89,7 @@ export default function CobroPage() {
       setEstadoTurno(abierto ? "listo" : "sin-turno");
     } catch (e) {
       console.error(e);
+      setErrorTurno(e && typeof e === "object" && "message" in e ? String(e.message) : null);
       setEstadoTurno("error");
     }
   }, [usuario, establecerTurno]);
@@ -250,15 +252,25 @@ export default function CobroPage() {
       {estadoTurno === "error" && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/60 p-6">
           <div role="alertdialog" className="flex max-w-md flex-col items-center gap-5 rounded-3xl bg-white p-8 text-center shadow-2xl dark:bg-slate-900">
-            <p className="text-lg">No se pudo consultar el turno. Revisa la conexión.</p>
-            <button
-              type="button"
-              onClick={resolverTurno}
-              className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-900 px-6 text-lg font-medium text-white dark:bg-slate-100 dark:text-slate-900"
-            >
-              <RefreshCw className="size-5" aria-hidden />
-              Reintentar
-            </button>
+            <p className="text-lg font-medium">No se pudo consultar el turno.</p>
+            {errorTurno && <p className="text-sm text-slate-500">{errorTurno}</p>}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={resolverTurno}
+                className="touch-target pressable flex items-center gap-2 rounded-2xl bg-slate-900 px-6 text-lg font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+              >
+                <RefreshCw className="size-5" aria-hidden />
+                Reintentar
+              </button>
+              <button
+                type="button"
+                onClick={cambiarUsuario}
+                className="touch-target pressable rounded-2xl bg-slate-100 px-6 text-lg font-medium dark:bg-slate-800"
+              >
+                Cambiar usuario
+              </button>
+            </div>
           </div>
         </div>
       )}

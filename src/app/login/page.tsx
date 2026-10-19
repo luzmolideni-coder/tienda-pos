@@ -12,7 +12,7 @@ const LARGO_MAXIMO_PIN = 6;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { usuario, listo, iniciarSesion } = useSession();
+  const { usuario, listo, avisoSesion, iniciarSesion } = useSession();
   const [pin, setPin] = useState("");
   const [validando, setValidando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +78,8 @@ export default function LoginPage() {
         )}
       </div>
 
-      <p role="alert" className="h-6 font-medium text-red-600">
-        {error}
+      <p role="alert" className="min-h-6 max-w-md text-center font-medium text-red-600">
+        {error ?? (pin === "" ? avisoSesion : null)}
       </p>
 
       <PinPad

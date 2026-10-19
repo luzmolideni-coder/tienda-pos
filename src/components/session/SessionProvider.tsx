@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { cerrarSesionEnBase } from "@/lib/datos";
+import { cerrarSesionEnBase, validarSesion } from "@/lib/datos";
 import { EVENTO_SESION_INVALIDA } from "@/lib/supabase/rpc";
 import type { Turno, Usuario } from "@/types/pos";
 
@@ -10,8 +10,13 @@ const STORAGE_KEY = "pos.usuario";
 
 interface SessionContextValue {
   usuario: Usuario | null;
-  /** false hasta leer localStorage; evita redirigir antes de saber si hay sesión. */
+  /**
+   * false hasta comprobar con la base el token guardado. Mientras tanto ninguna pantalla interna
+   * se muestra ni consulta datos: sin token válido se va directo al PIN.
+   */
   listo: boolean;
+  /** Por qué se descartó la sesión guardada (para mostrarlo en la pantalla de PIN). */
+  avisoSesion: string | null;
   /**
    * Turno al que se asocian las ventas. No se guarda en localStorage: se vuelve a consultar
    * al entrar al POS para no vender sobre un turno que se cerró en otro dispositivo.
@@ -39,10 +44,36 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [listo, setListo] = useState(false);
   const [turno, setTurno] = useState<Turno | null>(null);
+  const [avisoSesion, setAvisoSesion] = useState<string | null>(null);
 
   useEffect(() => {
-    setUsuario(leerUsuario());
-    setListo(true);
+    const guardado = leerUsuario();
+    if (!guardado) {
+      setListo(true);
+      return;
+    }
+    let vigente = true;
+    validarSesion(guardado.token)
+      .then((actual) => {
+        if (!vigente) return;
+        // Rol y tienda vienen de la base, no de lo que quedó guardado en el navegador.
+        const usuarioActual = { ...actual, token: guardado.token };
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(usuarioActual));
+        } catch {}
+        setUsuario(usuarioActual);
+      })
+      .catch((e: unknown) => {
+        if (!vigente) return;
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {}
+        setAvisoSesion(e instanceof Error && e.message ? e.message : "No se pudo verificar tu sesión. Vuelve a entrar con tu PIN.");
+      })
+      .finally(() => vigente && setListo(true));
+    return () => {
+      vigente = false;
+    };
   }, []);
 
   const iniciarSesion = useCallback((nuevo: Usuario) => {
@@ -51,6 +82,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Sin almacenamiento la sesión dura solo mientras la pestaña esté abierta.
     }
+    setAvisoSesion(null);
     setUsuario(nuevo);
   }, []);
 
@@ -71,6 +103,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.removeItem(STORAGE_KEY);
       } catch {}
+      setAvisoSesion("Tu sesión expiró. Vuelve a entrar con tu PIN.");
       setUsuario(null);
       setTurno(null);
     };
@@ -79,7 +112,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <SessionContext.Provider value={{ usuario, listo, turno, establecerTurno: setTurno, iniciarSesion, cerrarSesion }}>
+    <SessionContext.Provider value={{ usuario, listo, avisoSesion, turno, establecerTurno: setTurno, iniciarSesion, cerrarSesion }}>
       {children}
     </SessionContext.Provider>
   );

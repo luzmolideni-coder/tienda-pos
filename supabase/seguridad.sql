@@ -12,6 +12,8 @@
 --   4. El login limita intentos fallidos para que no se puedan probar los 10,000 PINs.
 --
 -- Después de ejecutarlo, recarga la app: todos tendrán que volver a entrar con su PIN.
+-- rol, metodo_pago y tipo se convierten a texto (::text) porque pueden ser tipos ENUM
+-- (usuarios.rol es rol_usuario) y upper()/lower() no aceptan ENUM directamente.
 -- =====================================================================================
 
 begin;
@@ -55,7 +57,7 @@ begin
   if not found then
     raise exception 'SESION_INVALIDA';
   end if;
-  if p_solo_admin and upper(v.rol) <> 'ADMIN' then
+  if p_solo_admin and upper(v.rol::text) <> 'ADMIN' then
     raise exception 'SOLO_ADMIN';
   end if;
   return v;
@@ -89,6 +91,22 @@ begin
   insert into sesiones_pos (usuario_id) values (v.id) returning token into v_token;
 
   return json_build_object('id', v.id, 'nombre', v.nombre, 'rol', v.rol, 'tienda_id', v.tienda_id, 'token', v_token);
+end;
+$$;
+
+-- Al abrir la app: confirma que el token sigue vigente y devuelve los datos actuales del usuario
+-- (si cambió su rol en la base, la app lo toma de aquí y no de lo guardado en el navegador).
+create or replace function public.pos_validar_sesion(p_token uuid)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  u public.usuarios;
+begin
+  select * into u from _pos_usuario(p_token);
+  return json_build_object('id', u.id, 'nombre', u.nombre, 'rol', u.rol, 'tienda_id', u.tienda_id, 'token', p_token);
 end;
 $$;
 
@@ -187,7 +205,7 @@ begin
   if not exists (
     select 1 from turnos
     where id = p_turno_id and estado = 'ABIERTO'
-      and (usuario_id = u.id or tienda_id = u.tienda_id or upper(u.rol) = 'ADMIN')
+      and (usuario_id = u.id or tienda_id = u.tienda_id or upper(u.rol::text) = 'ADMIN')
   ) then
     raise exception 'El turno no está abierto';
   end if;
@@ -211,16 +229,16 @@ declare
 begin
   select fondo_inicial into v_fondo from turnos where id = p_turno_id;
   select
-    coalesce(sum(total) filter (where lower(metodo_pago) = 'efectivo'), 0),
-    coalesce(sum(total) filter (where lower(metodo_pago) = 'tarjeta'), 0),
-    coalesce(sum(total) filter (where lower(metodo_pago) = 'transferencia'), 0),
+    coalesce(sum(total) filter (where lower(metodo_pago::text) = 'efectivo'), 0),
+    coalesce(sum(total) filter (where lower(metodo_pago::text) = 'tarjeta'), 0),
+    coalesce(sum(total) filter (where lower(metodo_pago::text) = 'transferencia'), 0),
     count(*)
   into v_ef, v_tar, v_tra, v_num
   from ventas where turno_id = p_turno_id;
   select
-    coalesce(sum(monto) filter (where upper(tipo) = 'ENTRADA'), 0),
-    coalesce(sum(monto) filter (where upper(tipo) = 'PAGO_PROVEEDOR'), 0),
-    coalesce(sum(monto) filter (where upper(tipo) = 'GASTO'), 0)
+    coalesce(sum(monto) filter (where upper(tipo::text) = 'ENTRADA'), 0),
+    coalesce(sum(monto) filter (where upper(tipo::text) = 'PAGO_PROVEEDOR'), 0),
+    coalesce(sum(monto) filter (where upper(tipo::text) = 'GASTO'), 0)
   into v_ent, v_pag, v_gas
   from movimientos_caja where turno_id = p_turno_id;
 
@@ -274,7 +292,7 @@ begin
   if not found then
     raise exception 'El turno no existe o ya está cerrado';
   end if;
-  if t.usuario_id <> u.id and t.tienda_id is distinct from u.tienda_id and upper(u.rol) <> 'ADMIN' then
+  if t.usuario_id <> u.id and t.tienda_id is distinct from u.tienda_id and upper(u.rol::text) <> 'ADMIN' then
     raise exception 'No puedes cerrar el turno de otra tienda';
   end if;
 
@@ -295,7 +313,7 @@ begin
     deposito_caja_fuerte = v_dep
   where id = p_turno_id;
 
-  if upper(u.rol) = 'ADMIN' then
+  if upper(u.rol::text) = 'ADMIN' then
     return (c::jsonb || jsonb_build_object(
       'efectivo_contado', v_contado, 'diferencia', v_dif, 'deposito', v_dep, 'fecha_cierre', v_cierre
     ))::json;
@@ -336,13 +354,13 @@ begin
   perform _pos_usuario(p_token, true);
 
   with v as (
-    select id, total, lower(metodo_pago) as metodo
+    select id, total, lower(metodo_pago::text) as metodo
     from ventas
     where created_at >= p_desde and created_at < p_hasta
       and (p_tienda_id is null or tienda_id = p_tienda_id)
   ),
   mv as (
-    select upper(m.tipo) as tipo, m.monto
+    select upper(m.tipo::text) as tipo, m.monto
     from movimientos_caja m
     join turnos t on t.id = m.turno_id
     where m.created_at >= p_desde and m.created_at < p_hasta
@@ -556,7 +574,7 @@ begin
   for f in
     select p.oid::regprocedure from pg_proc p
     where p.pronamespace = 'public'::regnamespace
-      and p.proname in ('iniciar_sesion_pos', 'cerrar_sesion_pos', 'pos_turno_abierto', 'pos_abrir_turno',
+      and p.proname in ('iniciar_sesion_pos', 'pos_validar_sesion', 'cerrar_sesion_pos', 'pos_turno_abierto', 'pos_abrir_turno',
                         'pos_registrar_movimiento', 'pos_cifras_turno', 'pos_cerrar_turno', 'pos_rechazar_pedido',
                         'pos_registrar_venta', 'pos_procesar_recepcion', 'pos_crear_pedido', 'pos_aprobar_pedido',
                         'panel_kpis', 'panel_inventario', 'panel_cortes')

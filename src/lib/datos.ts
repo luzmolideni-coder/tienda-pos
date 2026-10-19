@@ -29,6 +29,11 @@ export async function buscarUsuarioPorPin(pin: string): Promise<Usuario | null> 
   return rpcSeguro<Usuario | null>("iniciar_sesion_pos", { p_pin: pin });
 }
 
+/** Confirma con la base que el token sigue vigente y devuelve los datos actuales del usuario. */
+export async function validarSesion(token: string): Promise<Usuario> {
+  return rpcSeguro<Usuario>("pos_validar_sesion", { p_token: token });
+}
+
 export async function cerrarSesionEnBase(token: string): Promise<void> {
   await rpcSeguro("cerrar_sesion_pos", { p_token: token });
 }
