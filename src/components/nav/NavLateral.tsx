@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList, Landmark, LogOut, PackageCheck, ShoppingCart, Store } from "lucide-react";
+import { ClipboardList, Landmark, LogOut, PackageCheck, ScanBarcode, ShoppingCart, Store } from "lucide-react";
 import Link from "next/link";
 import { Fragment } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -11,6 +11,7 @@ const SECCIONES = [
   { href: "/", etiqueta: "Vender", Icono: ShoppingCart, soloAdmin: false },
   { href: "/operacion/pedidos", etiqueta: "Pedidos", Icono: ClipboardList, soloAdmin: false },
   { href: "/operacion/compras", etiqueta: "Compras", Icono: PackageCheck, soloAdmin: false },
+  { href: "/operacion/inventario", etiqueta: "Inventario", Icono: ScanBarcode, soloAdmin: false },
   { href: "/direccion", etiqueta: "Dirección", Icono: Landmark, soloAdmin: true },
 ];
 

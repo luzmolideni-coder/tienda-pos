@@ -162,3 +162,23 @@ export async function cerrarTurno(usuario: Usuario, turnoId: Id, efectivoContado
     cierre,
   };
 }
+
+export interface ResultadoConteo {
+  stockContado: number;
+  /** Solo para ADMIN: el conteo de OPERACION es ciego. */
+  stockAnterior?: number | null;
+  diferencia?: number;
+}
+
+/** Fija la existencia de un producto con lo contado físicamente (pos_ajustar_inventario). */
+export async function ajustarInventario(usuario: Usuario, productoId: Id, cantidadContada: number): Promise<ResultadoConteo> {
+  const r = await rpcSeguro<{ stock_contado: number; stock_anterior?: number | null; diferencia?: number }>(
+    "pos_ajustar_inventario",
+    { p_token: usuario.token, p_producto_id: productoId, p_cantidad_contada: cantidadContada },
+  );
+  return {
+    stockContado: Number(r.stock_contado),
+    stockAnterior: r.stock_anterior === undefined ? undefined : r.stock_anterior === null ? null : Number(r.stock_anterior),
+    diferencia: r.diferencia === undefined ? undefined : Number(r.diferencia),
+  };
+}
