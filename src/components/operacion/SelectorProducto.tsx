@@ -2,6 +2,7 @@
 
 import { Check, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { buscarPorCodigo } from "@/lib/codigos";
 import { formatMXN } from "@/lib/format";
 import type { Producto } from "@/types/pos";
 
@@ -52,7 +53,7 @@ export function SelectorProducto({ productos, proveedorId, yaAgregados, onElegir
                 if (e.key === "Escape") onCerrar();
                 // Lector de código de barras: Enter con coincidencia exacta agrega directo.
                 if (e.key === "Enter") {
-                  const exacto = productos.find((p) => p.codigo_barras === busqueda.trim());
+                  const exacto = buscarPorCodigo(productos, busqueda);
                   if (exacto) onElegir(exacto);
                 }
               }}

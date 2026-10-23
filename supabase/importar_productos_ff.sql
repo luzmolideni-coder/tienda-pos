@@ -4,12 +4,16 @@
 -- productos ya importados se reconocen por su código y no se duplican.
 --
 -- Por cada renglón del archivo:
---   · Si ya hay un producto con ese código de barras, o con el mismo nombre (sin contar
---     mayúsculas, acentos, espacios ni signos: "Coca-Cola 600ml" = "CocaCola 600 ml"),
---     solo se actualiza su código de barras.
+--   · Si ya hay un producto con ese código de barras (sin contar ceros a la izquierda), o
+--     con el mismo nombre (sin mayúsculas, acentos, espacios ni signos: "Coca-Cola 600ml" =
+--     "CocaCola 600 ml"), se respeta: su código actual NO se cambia. Solo si no tenía
+--     código se le pone el del archivo.
 --   · Si no existe, se crea activo con precio_venta y costo_actual en 0.
 --   · Todo producto importado sin renglón en inventario_tienda recibe uno con stock 0 en
 --     cada tienda.
+-- 19 códigos UPC de 11 dígitos ya vienen corregidos con su 0 inicial.
+-- 79 códigos no son EAN/UPC válidos (inventados): se importan tal cual y la app
+-- los muestra como "Código provisional" para reemplazarlos al escanear el real.
 -- Al final muestra un resumen. Si algo falla, no se aplica nada.
 -- =====================================================================================
 
@@ -19,24 +23,24 @@ begin;
 
 create temp table _archivo (codigo text not null, nombre text not null) on commit drop;
 insert into _archivo (codigo, nombre) values
-  ('13602000200', 'Polvo Para Hornear Rexal 100g'),
-  ('18804701436', 'Chicle Tueni'),
-  ('25046150137', 'Chocolate Bocadin'),
+  ('013602000200', 'Polvo Para Hornear Rexal 100g'),
+  ('018804701436', 'Chicle Tueni'),
+  ('025046150137', 'Chocolate Bocadin'),
   ('2526719', 'Duvalin'),
   ('25431020', 'Flash Lavanda 500 Ml'),
-  ('34587030013', 'Sal La Fina 1 Kg'),
-  ('34587090253', 'Sal La Fina - Salero 120g'),
-  ('36731106018', 'Gatorade Naranja 600ml'),
-  ('36731106063', 'Gatorade Ponche De Frutas 600ml'),
-  ('36731135919', 'Gatorade Moras 500ml'),
-  ('37836041259', 'Crema Hinds Tapa Rosa 90ml'),
-  ('37836041297', 'Crema Hinds Tapa Morada 90ml'),
-  ('37836041341', 'Crema Hinds Tapa Verde90ml'),
+  ('034587030013', 'Sal La Fina 1 Kg'),
+  ('034587090253', 'Sal La Fina - Salero 120g'),
+  ('036731106018', 'Gatorade Naranja 600ml'),
+  ('036731106063', 'Gatorade Ponche De Frutas 600ml'),
+  ('036731135919', 'Gatorade Moras 500ml'),
+  ('037836041259', 'Crema Hinds Tapa Rosa 90ml'),
+  ('037836041297', 'Crema Hinds Tapa Morada 90ml'),
+  ('037836041341', 'Crema Hinds Tapa Verde90ml'),
   ('414027', 'Cafe Legal Pequeño 10g'),
-  ('41594206607', 'Vaso Unicel 110 Dar'),
-  ('41789001864', 'Maruchan Limon Y Habanero'),
-  ('41789001987', 'Maruchan Chile Piquin'),
-  ('41789002960', 'Maruchan Ramen Limon Y Habanero'),
+  ('041594206607', 'Vaso Unicel 110 Dar'),
+  ('041789001864', 'Maruchan Limon Y Habanero'),
+  ('041789001987', 'Maruchan Chile Piquin'),
+  ('041789002960', 'Maruchan Ramen Limon Y Habanero'),
   ('501025440282', 'Flas Floral 1L'),
   ('5013405653219', 'Navaja Unidad'),
   ('604498701984', 'Leche Clarisa 1L'),
@@ -546,7 +550,7 @@ insert into _archivo (codigo, nombre) values
   ('758104005796', 'Agua Bonafont 1.2L'),
   ('7591005574014', 'Raidolitos (por Pieza)'),
   ('759684076091', 'Algodon Jaloma 10g'),
-  ('76183000892', 'Snapple Tea Frambuesa'),
+  ('076183000892', 'Snapple Tea Frambuesa'),
   ('7622210267818', 'Halls Azules'),
   ('7622210267863', 'Halls Miel'),
   ('7622210561558', 'Queso Philadelphia 180g'),
@@ -567,9 +571,9 @@ insert into _archivo (codigo, nombre) values
   ('80050094', 'Kinder Maxi 21g'),
   ('812999014834', 'Chipileta'),
   ('8719200450615', 'Mantequilla Iberia'),
-  ('97339000054', 'Salsa Valentina 370ml'),
-  ('97339000061', 'Salsa Valentina Negra'),
-  ('99176316831', 'Cepillo De Dientes Colgate'),
+  ('097339000054', 'Salsa Valentina 370ml'),
+  ('097339000061', 'Salsa Valentina Negra'),
+  ('099176316831', 'Cepillo De Dientes Colgate'),
   ('ABARR0000000030', 'Queso Añejo'),
   ('ABARR00000001', 'Veladora Sin Vaso'),
   ('ABARR000000023', 'Huevo'),
@@ -651,7 +655,8 @@ update _archivo set clave = regexp_replace(translate(lower(nombre), 'áéíóú�
 create temp table _cruce on commit drop as
 select a.codigo, a.nombre,
        coalesce(
-         (select p.id from productos p where p.codigo_barras = a.codigo limit 1),
+         (select p.id from productos p
+           where ltrim(p.codigo_barras, '0') = ltrim(a.codigo, '0') and p.codigo_barras <> '' limit 1),
          (select p.id from productos p where regexp_replace(translate(lower(p.nombre), 'áéíóúüñàèìòùâêîôû', 'aeiouunaeiouaeiou'), '[^a-z0-9]', '', 'g') = a.clave
            order by p.created_at limit 1)
        ) as producto_id
@@ -660,20 +665,21 @@ from _archivo a;
 create temp table _resumen (concepto text, cantidad int) on commit preserve rows;
 
 insert into _resumen
-select 'Existentes que ya tenían ese código (sin cambios)', count(*)
-from _cruce c join productos p on p.id = c.producto_id where p.codigo_barras = c.codigo;
+select 'Productos existentes reconocidos (se conservó su código)', count(*)
+from _cruce c join productos p on p.id = c.producto_id
+where coalesce(p.codigo_barras, '') <> '';
 
--- 1) Existentes: actualizar el código si cambió y nadie más lo usa.
+-- 1) Existentes sin código: se les pone el del archivo si nadie más lo usa.
 with cambios as (
   update productos p
   set codigo_barras = c.codigo
   from _cruce c
   where c.producto_id = p.id
-    and p.codigo_barras is distinct from c.codigo
+    and coalesce(p.codigo_barras, '') = ''
     and not exists (select 1 from productos o where o.codigo_barras = c.codigo and o.id <> p.id)
   returning p.id
 )
-insert into _resumen select 'Productos existentes con código actualizado', count(*) from cambios;
+insert into _resumen select 'Productos existentes sin código a los que se les puso el del archivo', count(*) from cambios;
 
 -- 2) Nuevos: crear con precio y costo en 0.
 with nuevos as (
@@ -700,11 +706,6 @@ with inv as (
   returning 1
 )
 insert into _resumen select 'Renglones nuevos en inventario_tienda (stock 0)', count(*) from inv;
-
-insert into _resumen
-select 'Códigos del archivo que ya usaba otro producto (no se cambiaron)', count(*)
-from _cruce c join productos p on p.id = c.producto_id
-where p.codigo_barras is distinct from c.codigo;
 
 commit;
 

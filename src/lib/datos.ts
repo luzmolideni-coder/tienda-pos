@@ -182,3 +182,16 @@ export async function ajustarInventario(usuario: Usuario, productoId: Id, cantid
     diferencia: r.diferencia === undefined ? undefined : Number(r.diferencia),
   };
 }
+
+/**
+ * Guarda el código de barras real escaneado en un producto (pos_asignar_codigo). La base solo
+ * acepta EAN/UPC válidos, rechaza códigos de otro producto y, si ya tenía uno real, exige ADMIN.
+ */
+export async function asignarCodigo(usuario: Usuario, productoId: Id, codigo: string): Promise<string> {
+  const r = await rpcSeguro<{ codigo_nuevo: string }>("pos_asignar_codigo", {
+    p_token: usuario.token,
+    p_producto_id: productoId,
+    p_codigo: codigo.trim(),
+  });
+  return r.codigo_nuevo;
+}

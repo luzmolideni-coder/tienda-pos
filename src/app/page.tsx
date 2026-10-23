@@ -15,6 +15,7 @@ import { useRequiereSesion } from "@/components/session/SessionProvider";
 import { useCarrito } from "@/hooks/useCarrito";
 import { ETIQUETA_MOVIMIENTO } from "@/lib/corte";
 import { abrirTurno, buscarTurnoAbierto, cargarProductosActivos, registrarMovimiento, registrarVenta } from "@/lib/datos";
+import { buscarPorCodigo } from "@/lib/codigos";
 import { formatMXN } from "@/lib/format";
 import { veCifrasDelCorte } from "@/lib/roles";
 import type { MetodoPago, Producto, TipoMovimiento } from "@/types/pos";
@@ -140,7 +141,7 @@ export default function CobroPage() {
   // Enter en el buscador: coincidencia exacta de código (lector de barras) o único resultado.
   const agregarDesdeBusqueda = () => {
     if (!termino) return;
-    const porCodigo = productos.find((p) => p.codigo_barras?.toLowerCase() === termino);
+    const porCodigo = buscarPorCodigo(productos, busqueda);
     const elegido = porCodigo ?? (visibles.length === 1 ? visibles[0] : undefined);
     if (elegido) {
       // Se limpia aunque no tenga precio, para que el lector quede listo para el siguiente código.

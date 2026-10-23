@@ -3,10 +3,12 @@
 import { Camera, CheckCircle2, ClipboardCheck, Loader2, PackageSearch, RefreshCw, ScanBarcode, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Aviso } from "@/components/comun/Aviso";
+import { CapturarCodigoReal, ElegirProductoParaCodigo } from "@/components/operacion/AsignarCodigo";
 import { EscanerCamara } from "@/components/operacion/EscanerCamara";
 import { aplicarTecla, montoDeTexto, TecladoMonto, type Tecla } from "@/components/pos/TecladoMonto";
 import { useSession } from "@/components/session/SessionProvider";
-import { ajustarInventario, cargarProductosActivos } from "@/lib/datos";
+import { buscarPorCodigo as encontrarPorCodigo, esCodigoReal } from "@/lib/codigos";
+import { ajustarInventario, asignarCodigo, cargarProductosActivos } from "@/lib/datos";
 import type { Producto } from "@/types/pos";
 
 interface Contado {
@@ -41,6 +43,10 @@ export default function InventarioFisicoPage() {
   const [error, setError] = useState<string | null>(null);
   const [escaneando, setEscaneando] = useState(false);
   const [contados, setContados] = useState<Contado[]>([]);
+  // Código real escaneado que no está en el catálogo: falta decir de qué producto es.
+  const [codigoSinProducto, setCodigoSinProducto] = useState<string | null>(null);
+  // Producto con código provisional al que se le va a escanear el real.
+  const [capturandoCodigo, setCapturandoCodigo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const ocultarAviso = useCallback(() => setAviso(null), []);
 
@@ -80,7 +86,7 @@ export default function InventarioFisicoPage() {
   };
 
   const buscarPorCodigo = (codigo: string): boolean => {
-    const encontrado = productos.find((p) => p.codigo_barras && p.codigo_barras === codigo.trim());
+    const encontrado = encontrarPorCodigo(productos, codigo);
     if (encontrado) {
       setBusqueda("");
       elegir(encontrado);
@@ -89,12 +95,32 @@ export default function InventarioFisicoPage() {
     return false;
   };
 
+  /** Código que no está en el catálogo: si es un código real, se pregunta a qué producto pertenece. */
+  const codigoDesconocido = (codigo: string) => {
+    const limpio = codigo.trim();
+    if (esCodigoReal(limpio)) {
+      setBusqueda("");
+      setError(null);
+      setCodigoSinProducto(limpio);
+    } else {
+      setBusqueda(limpio);
+      setError(`El código ${limpio} no está en el catálogo.`);
+    }
+  };
+
   const alEscanear = (codigo: string) => {
     setEscaneando(false);
-    if (!buscarPorCodigo(codigo)) {
-      setBusqueda(codigo);
-      setError(`El código ${codigo} no está en el catálogo.`);
-    }
+    if (!buscarPorCodigo(codigo)) codigoDesconocido(codigo);
+  };
+
+  /** Guarda el código en la base y lo refleja en la lista local. */
+  const guardarCodigo = async (producto: Producto, codigo: string) => {
+    if (!usuario) return;
+    const guardado = await asignarCodigo(usuario, producto.id, codigo);
+    const actualizado = { ...producto, codigo_barras: guardado };
+    setProductos((lista) => lista.map((p) => (p.id === producto.id ? actualizado : p)));
+    setAviso(`Código ${guardado} guardado en ${producto.nombre}`);
+    return actualizado;
   };
 
   const alTecla = useCallback((tecla: Tecla) => setTexto((prev) => aplicarTecla(prev, tecla)), []);
@@ -181,7 +207,7 @@ export default function InventarioFisicoPage() {
                       setBusqueda("");
                       elegir(visibles[0]);
                     } else if (visibles.length === 0) {
-                      setError(`El código ${busqueda.trim()} no está en el catálogo.`);
+                      codigoDesconocido(busqueda);
                     }
                   }
                   if (e.key === "Escape") setBusqueda("");
@@ -229,9 +255,16 @@ export default function InventarioFisicoPage() {
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block text-lg font-medium">{p.nombre}</span>
-                      <span className="flex items-center gap-1 text-sm text-slate-500">
-                        <ScanBarcode className="size-4" aria-hidden />
-                        {p.codigo_barras || "Sin código"}
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                        <span className="flex items-center gap-1">
+                          <ScanBarcode className="size-4" aria-hidden />
+                          {p.codigo_barras || "Sin código"}
+                        </span>
+                        {!esCodigoReal(p.codigo_barras) && (
+                          <span className="rounded-full bg-amber-100 px-2 text-xs font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-100">
+                            Código provisional
+                          </span>
+                        )}
                       </span>
                     </span>
                     {contado && (
@@ -261,6 +294,16 @@ export default function InventarioFisicoPage() {
                 <p className="text-2xl font-semibold leading-tight">{seleccionado.nombre}</p>
                 {seleccionado.codigo_barras && <p className="text-sm text-slate-500">{seleccionado.codigo_barras}</p>}
               </div>
+              {!esCodigoReal(seleccionado.codigo_barras) && (
+                <button
+                  type="button"
+                  onClick={() => setCapturandoCodigo(true)}
+                  className="touch-target pressable flex items-center justify-center gap-2 rounded-2xl bg-amber-100 px-4 font-semibold text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                >
+                  <ScanBarcode className="size-5" aria-hidden />
+                  Código provisional: escanear el real
+                </button>
+              )}
               <div className="rounded-2xl bg-slate-50 p-4 text-center dark:bg-slate-800">
                 <p className="text-slate-500">Piezas contadas</p>
                 <p className={`text-6xl font-bold tabular-nums ${texto === "" ? "text-slate-300 dark:text-slate-600" : ""}`}>
@@ -334,6 +377,32 @@ export default function InventarioFisicoPage() {
       </div>
 
       {escaneando && <EscanerCamara onDetectado={alEscanear} onCerrar={() => setEscaneando(false)} />}
+
+      {codigoSinProducto && (
+        <ElegirProductoParaCodigo
+          codigo={codigoSinProducto}
+          productos={productos}
+          onCerrar={() => setCodigoSinProducto(null)}
+          onAsignar={async (producto) => {
+            const actualizado = await guardarCodigo(producto, codigoSinProducto);
+            setCodigoSinProducto(null);
+            // Ya identificado, se pasa directo a contarlo.
+            if (actualizado) elegir(actualizado);
+          }}
+        />
+      )}
+
+      {capturandoCodigo && seleccionado && (
+        <CapturarCodigoReal
+          producto={seleccionado}
+          onCerrar={() => setCapturandoCodigo(false)}
+          onAsignar={async (codigo) => {
+            const actualizado = await guardarCodigo(seleccionado, codigo);
+            setCapturandoCodigo(false);
+            if (actualizado) setSeleccionado(actualizado);
+          }}
+        />
+      )}
       <Aviso mensaje={aviso} onOcultar={ocultarAviso} />
     </>
   );
