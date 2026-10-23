@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Loader2, PackageSearch, RefreshCw, Star } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, PackageSearch, RefreshCw, Star } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Carrito } from "@/components/pos/Carrito";
@@ -44,6 +44,7 @@ export default function CobroPage() {
   const [registrandoMovimiento, setRegistrandoMovimiento] = useState(false);
   const [enCorte, setEnCorte] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [alertaPrecio, setAlertaPrecio] = useState<string | null>(null);
   const [estadoTurno, setEstadoTurno] = useState<"buscando" | "listo" | "sin-turno" | "error">("buscando");
   const [errorTurno, setErrorTurno] = useState<string | null>(null);
 
@@ -111,6 +112,23 @@ export default function CobroPage() {
     return () => clearTimeout(t);
   }, [aviso]);
 
+  useEffect(() => {
+    if (!alertaPrecio) return;
+    const t = setTimeout(() => setAlertaPrecio(null), 5000);
+    return () => clearTimeout(t);
+  }, [alertaPrecio]);
+
+  // Un producto sin precio (p. ej. recién importado con precio 0) no se puede cobrar.
+  const agregarAlCarrito = (producto: Producto): boolean => {
+    if (!(producto.precio_venta > 0)) {
+      setAlertaPrecio(`"${producto.nombre}" no tiene precio. Pide a Dirección que lo asigne antes de venderlo.`);
+      return false;
+    }
+    setAlertaPrecio(null);
+    carrito.agregar(producto);
+    return true;
+  };
+
   const termino = normalizar(busqueda);
   const visibles = useMemo(() => {
     if (!termino) return productos.filter((p) => p.es_favorito);
@@ -125,7 +143,8 @@ export default function CobroPage() {
     const porCodigo = productos.find((p) => p.codigo_barras?.toLowerCase() === termino);
     const elegido = porCodigo ?? (visibles.length === 1 ? visibles[0] : undefined);
     if (elegido) {
-      carrito.agregar(elegido);
+      // Se limpia aunque no tenga precio, para que el lector quede listo para el siguiente código.
+      agregarAlCarrito(elegido);
       setBusqueda("");
     }
   };
@@ -137,6 +156,9 @@ export default function CobroPage() {
 
   const confirmarVenta = async (metodo: MetodoPago, pagaCon: number) => {
     if (!usuario) return;
+    if (carrito.items.some((i) => !(i.producto.precio_venta > 0))) {
+      throw new Error("Hay productos sin precio en la venta. Quítalos o pide que les asignen precio.");
+    }
     if (!turno) throw new Error("No hay un turno abierto. Cambia de usuario y vuelve a entrar para abrir uno.");
     await registrarVenta({ usuario, turnoId: turno.id, items: carrito.items, total: carrito.total, metodo, pagaCon });
     const cambio = pagaCon - carrito.total;
@@ -212,7 +234,7 @@ export default function CobroPage() {
                   )}
                 </h2>
                 {visibles.length > 0 ? (
-                  <GridProductos productos={visibles} onAgregar={carrito.agregar} />
+                  <GridProductos productos={visibles} onAgregar={agregarAlCarrito} />
                 ) : (
                   <div className="flex flex-col items-center gap-3 py-24 text-slate-400">
                     <PackageSearch className="size-14" aria-hidden />
@@ -293,7 +315,17 @@ export default function CobroPage() {
         />
       )}
 
-      {aviso && (
+      {alertaPrecio && (
+        <div
+          role="alert"
+          className="fixed bottom-8 left-1/2 z-50 flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-2xl bg-amber-500 px-6 py-4 text-lg font-medium text-amber-950 shadow-xl"
+        >
+          <AlertTriangle className="size-6 shrink-0" aria-hidden />
+          {alertaPrecio}
+        </div>
+      )}
+
+      {aviso && !alertaPrecio && (
         <div
           role="status"
           className="fixed bottom-8 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-slate-900 px-6 py-4 text-lg font-medium text-white shadow-xl"
